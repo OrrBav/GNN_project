@@ -1,0 +1,15 @@
+CVC/
+GRAN/
+Graphormer/
+embeddings/
+.idea/
+.vscode/
+data/embedding_graphs_50th_perc/
+data/embedding_graphs_75th_perc/
+data/embedding_graphs_90th_perc_new/
+data/embedding_graphs_95th_perc/
+data/data_ab_all_139.csv
+data/data_ab_83.csv
+data/data_12_fp.csv
+graphs/
+outputs/edge_lists/

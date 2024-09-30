@@ -1,0 +1,11 @@
+total 139 patients, sub sampled to 21272 TCR seq.
+83 original patiens - 49 healthy (ichilov), 34 sick(shiba).
+47 nd (new data - 21 sick ichilov, 26 healthy shiba)
+9 nh (healthy, TBD from which hospital)
+Currently no fp patients (12 from shiba)
+
+
+in embedding_graphs_90th_perc folder, files are saved in pickle format, as netwrokx files, with their embedding (as 'embbedding').
+has all 139 patients mentiond above, plus 6 of the 12 fp patients (excluding 35, 42,43,44,46,8)
+general_scripts.py is used to create netx graphs based on a certion threshold (percentile), based on csv with embedding for each TCR seq of each patient.
+random_scripts.py is used to create torch data object from netx graphs.

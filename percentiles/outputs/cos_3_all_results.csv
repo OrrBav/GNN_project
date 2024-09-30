@@ -1,0 +1,316 @@
+k_value,model,accuracy,classification_report
+all_k,KNN,0.6785714285714286,"              precision    recall  f1-score   support
+
+           0       0.75      0.71      0.73        17
+           1       0.58      0.64      0.61        11
+
+    accuracy                           0.68        28
+   macro avg       0.67      0.67      0.67        28
+weighted avg       0.68      0.68      0.68        28
+"
+all_k,Logistic Regression,0.75,"              precision    recall  f1-score   support
+
+           0       0.81      0.76      0.79        17
+           1       0.67      0.73      0.70        11
+
+    accuracy                           0.75        28
+   macro avg       0.74      0.75      0.74        28
+weighted avg       0.76      0.75      0.75        28
+"
+all_k,SVM,0.7142857142857143,"              precision    recall  f1-score   support
+
+           0       0.76      0.76      0.76        17
+           1       0.64      0.64      0.64        11
+
+    accuracy                           0.71        28
+   macro avg       0.70      0.70      0.70        28
+weighted avg       0.71      0.71      0.71        28
+"
+all_k,Decision Tree,0.6428571428571429,"              precision    recall  f1-score   support
+
+           0       0.77      0.59      0.67        17
+           1       0.53      0.73      0.62        11
+
+    accuracy                           0.64        28
+   macro avg       0.65      0.66      0.64        28
+weighted avg       0.68      0.64      0.65        28
+"
+all_k,Random Forest,0.75,"              precision    recall  f1-score   support
+
+           0       0.81      0.76      0.79        17
+           1       0.67      0.73      0.70        11
+
+    accuracy                           0.75        28
+   macro avg       0.74      0.75      0.74        28
+weighted avg       0.76      0.75      0.75        28
+"
+all_k,MLP,0.8214285714285714,"              precision    recall  f1-score   support
+
+           0       0.93      0.76      0.84        17
+           1       0.71      0.91      0.80        11
+
+    accuracy                           0.82        28
+   macro avg       0.82      0.84      0.82        28
+weighted avg       0.84      0.82      0.82        28
+"
+all_k,Neural Network,0.75,"              precision    recall  f1-score   support
+
+           0       0.81      0.76      0.79        17
+           1       0.67      0.73      0.70        11
+
+    accuracy                           0.75        28
+   macro avg       0.74      0.75      0.74        28
+weighted avg       0.76      0.75      0.75        28
+"
+avg_k,KNN,0.7142857142857143,"              precision    recall  f1-score   support
+
+           0       0.68      0.87      0.76        15
+           1       0.78      0.54      0.64        13
+
+    accuracy                           0.71        28
+   macro avg       0.73      0.70      0.70        28
+weighted avg       0.73      0.71      0.71        28
+"
+avg_k,Logistic Regression,0.6071428571428571,"              precision    recall  f1-score   support
+
+           0       0.61      0.73      0.67        15
+           1       0.60      0.46      0.52        13
+
+    accuracy                           0.61        28
+   macro avg       0.61      0.60      0.59        28
+weighted avg       0.61      0.61      0.60        28
+"
+avg_k,SVM,0.6785714285714286,"              precision    recall  f1-score   support
+
+           0       0.65      0.87      0.74        15
+           1       0.75      0.46      0.57        13
+
+    accuracy                           0.68        28
+   macro avg       0.70      0.66      0.66        28
+weighted avg       0.70      0.68      0.66        28
+"
+avg_k,Decision Tree,0.5,"              precision    recall  f1-score   support
+
+           0       0.53      0.60      0.56        15
+           1       0.45      0.38      0.42        13
+
+    accuracy                           0.50        28
+   macro avg       0.49      0.49      0.49        28
+weighted avg       0.49      0.50      0.49        28
+"
+avg_k,Random Forest,0.6428571428571429,"              precision    recall  f1-score   support
+
+           0       0.65      0.73      0.69        15
+           1       0.64      0.54      0.58        13
+
+    accuracy                           0.64        28
+   macro avg       0.64      0.64      0.64        28
+weighted avg       0.64      0.64      0.64        28
+"
+avg_k,MLP,0.6785714285714286,"              precision    recall  f1-score   support
+
+           0       0.69      0.73      0.71        15
+           1       0.67      0.62      0.64        13
+
+    accuracy                           0.68        28
+   macro avg       0.68      0.67      0.67        28
+weighted avg       0.68      0.68      0.68        28
+"
+avg_k,Neural Network,0.6428571428571429,"              precision    recall  f1-score   support
+
+           0       0.62      0.87      0.72        15
+           1       0.71      0.38      0.50        13
+
+    accuracy                           0.64        28
+   macro avg       0.67      0.63      0.61        28
+weighted avg       0.66      0.64      0.62        28
+"
+sqrt_n,KNN,0.7142857142857143,"              precision    recall  f1-score   support
+
+           0       0.64      0.75      0.69        12
+           1       0.79      0.69      0.73        16
+
+    accuracy                           0.71        28
+   macro avg       0.71      0.72      0.71        28
+weighted avg       0.72      0.71      0.72        28
+"
+sqrt_n,Logistic Regression,0.7142857142857143,"              precision    recall  f1-score   support
+
+           0       0.61      0.92      0.73        12
+           1       0.90      0.56      0.69        16
+
+    accuracy                           0.71        28
+   macro avg       0.76      0.74      0.71        28
+weighted avg       0.78      0.71      0.71        28
+"
+sqrt_n,SVM,0.7857142857142857,"              precision    recall  f1-score   support
+
+           0       0.69      0.92      0.79        12
+           1       0.92      0.69      0.79        16
+
+    accuracy                           0.79        28
+   macro avg       0.80      0.80      0.79        28
+weighted avg       0.82      0.79      0.79        28
+"
+sqrt_n,Decision Tree,0.6428571428571429,"              precision    recall  f1-score   support
+
+           0       0.56      0.83      0.67        12
+           1       0.80      0.50      0.62        16
+
+    accuracy                           0.64        28
+   macro avg       0.68      0.67      0.64        28
+weighted avg       0.70      0.64      0.64        28
+"
+sqrt_n,Random Forest,0.7857142857142857,"              precision    recall  f1-score   support
+
+           0       0.71      0.83      0.77        12
+           1       0.86      0.75      0.80        16
+
+    accuracy                           0.79        28
+   macro avg       0.79      0.79      0.78        28
+weighted avg       0.80      0.79      0.79        28
+"
+sqrt_n,MLP,0.7142857142857143,"              precision    recall  f1-score   support
+
+           0       0.62      0.83      0.71        12
+           1       0.83      0.62      0.71        16
+
+    accuracy                           0.71        28
+   macro avg       0.73      0.73      0.71        28
+weighted avg       0.74      0.71      0.71        28
+"
+sqrt_n,Neural Network,0.6785714285714286,"              precision    recall  f1-score   support
+
+           0       0.58      0.92      0.71        12
+           1       0.89      0.50      0.64        16
+
+    accuracy                           0.68        28
+   macro avg       0.73      0.71      0.67        28
+weighted avg       0.76      0.68      0.67        28
+"
+log_n,KNN,0.6785714285714286,"              precision    recall  f1-score   support
+
+           0       0.75      0.71      0.73        17
+           1       0.58      0.64      0.61        11
+
+    accuracy                           0.68        28
+   macro avg       0.67      0.67      0.67        28
+weighted avg       0.68      0.68      0.68        28
+"
+log_n,Logistic Regression,0.7142857142857143,"              precision    recall  f1-score   support
+
+           0       0.71      0.88      0.79        17
+           1       0.71      0.45      0.56        11
+
+    accuracy                           0.71        28
+   macro avg       0.71      0.67      0.67        28
+weighted avg       0.71      0.71      0.70        28
+"
+log_n,SVM,0.7142857142857143,"              precision    recall  f1-score   support
+
+           0       0.74      0.82      0.78        17
+           1       0.67      0.55      0.60        11
+
+    accuracy                           0.71        28
+   macro avg       0.70      0.68      0.69        28
+weighted avg       0.71      0.71      0.71        28
+"
+log_n,Decision Tree,0.7142857142857143,"              precision    recall  f1-score   support
+
+           0       0.76      0.76      0.76        17
+           1       0.64      0.64      0.64        11
+
+    accuracy                           0.71        28
+   macro avg       0.70      0.70      0.70        28
+weighted avg       0.71      0.71      0.71        28
+"
+log_n,Random Forest,0.7142857142857143,"              precision    recall  f1-score   support
+
+           0       0.80      0.71      0.75        17
+           1       0.62      0.73      0.67        11
+
+    accuracy                           0.71        28
+   macro avg       0.71      0.72      0.71        28
+weighted avg       0.73      0.71      0.72        28
+"
+log_n,MLP,0.6785714285714286,"              precision    recall  f1-score   support
+
+           0       0.72      0.76      0.74        17
+           1       0.60      0.55      0.57        11
+
+    accuracy                           0.68        28
+   macro avg       0.66      0.66      0.66        28
+weighted avg       0.67      0.68      0.68        28
+"
+log_n,Neural Network,0.7142857142857143,"              precision    recall  f1-score   support
+
+           0       0.74      0.82      0.78        17
+           1       0.67      0.55      0.60        11
+
+    accuracy                           0.71        28
+   macro avg       0.70      0.68      0.69        28
+weighted avg       0.71      0.71      0.71        28
+"
+sqrt_n/2,KNN,0.6428571428571429,"              precision    recall  f1-score   support
+
+           0       0.75      0.67      0.71        18
+           1       0.50      0.60      0.55        10
+
+    accuracy                           0.64        28
+   macro avg       0.62      0.63      0.63        28
+weighted avg       0.66      0.64      0.65        28
+"
+sqrt_n/2,Logistic Regression,0.6428571428571429,"              precision    recall  f1-score   support
+
+           0       0.72      0.72      0.72        18
+           1       0.50      0.50      0.50        10
+
+    accuracy                           0.64        28
+   macro avg       0.61      0.61      0.61        28
+weighted avg       0.64      0.64      0.64        28
+"
+sqrt_n/2,SVM,0.75,"              precision    recall  f1-score   support
+
+           0       0.79      0.83      0.81        18
+           1       0.67      0.60      0.63        10
+
+    accuracy                           0.75        28
+   macro avg       0.73      0.72      0.72        28
+weighted avg       0.75      0.75      0.75        28
+"
+sqrt_n/2,Decision Tree,0.6071428571428571,"              precision    recall  f1-score   support
+
+           0       0.77      0.56      0.65        18
+           1       0.47      0.70      0.56        10
+
+    accuracy                           0.61        28
+   macro avg       0.62      0.63      0.60        28
+weighted avg       0.66      0.61      0.61        28
+"
+sqrt_n/2,Random Forest,0.7142857142857143,"              precision    recall  f1-score   support
+
+           0       0.78      0.78      0.78        18
+           1       0.60      0.60      0.60        10
+
+    accuracy                           0.71        28
+   macro avg       0.69      0.69      0.69        28
+weighted avg       0.71      0.71      0.71        28
+"
+sqrt_n/2,MLP,0.7142857142857143,"              precision    recall  f1-score   support
+
+           0       0.78      0.78      0.78        18
+           1       0.60      0.60      0.60        10
+
+    accuracy                           0.71        28
+   macro avg       0.69      0.69      0.69        28
+weighted avg       0.71      0.71      0.71        28
+"
+sqrt_n/2,Neural Network,0.7142857142857143,"              precision    recall  f1-score   support
+
+           0       0.78      0.78      0.78        18
+           1       0.60      0.60      0.60        10
+
+    accuracy                           0.71        28
+   macro avg       0.69      0.69      0.69        28
+weighted avg       0.71      0.71      0.71        28
+"
