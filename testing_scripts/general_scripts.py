@@ -15,11 +15,11 @@ input_folder = "./embeddings/cvcs/"
 # results 1(just resulst as filename):[25, 50, 75, 90, 95, 99]
 # results 2: [10, 25, 40, 50, 60, 75, 90, 95]
 # results 3: [5, 15, 25, 35, 50, 70, 80, 90, 95]
-PERCENTILES = [5, 15, 25, 35, 50, 70, 80, 90, 95] ## does not matter in creating netx graphs function
+PERCENTILES = [5, 15, 25, 35, 50, 70, 80, 90, 95] ## does not matter when creating netx graphs function
 # cosine, euclidean (=l2)
 METRIC = "cosine"
-OUTPUT_FILE = "/home/users/orrbavly/GNN_project/embeddings/percentiles_results_check_cos_3_all.json"
-EMBEDDINGS_FOLDER = "/home/dsi/orrbavly/GNN_project/embeddings/check_embeddings"
+OUTPUT_FILE = "/home/dsi/orrbavly/GNN_project/embeddings/colon_percentiles/percentiles_results_check_cos_3_all.json"
+EMBEDDINGS_FOLDER = "/dsi/sbm/OrrBavly/colon_data/embeddings"
 # add /extras for the additional csvs
 input_emb_folder = "/home/dsi/orrbavly/GNN_project/embeddings/new_embeddings/csvs"
 
