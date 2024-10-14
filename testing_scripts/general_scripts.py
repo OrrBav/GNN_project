@@ -235,7 +235,7 @@ def create_netx_graphs(file_path):
     return G
 
 def save_netx_graphs(directory):
-    output_path = '/home/dsi/orrbavly/GNN_project/data/embedding_graphs_90th_perc_new'
+    output_path = '/dsi/sbm/OrrBavly/colon_data/embedding_graphs_90th_perc'
     # Get a list of already processed files (without their extensions)
     processed_files = {os.path.splitext(filename)[0] for filename in os.listdir(output_path)}
 
