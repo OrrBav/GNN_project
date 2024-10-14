@@ -187,6 +187,7 @@ if __name__ == "__main__":
     # Set directory to where the custom pkl files are stored
     dataset_dir = '/home/dsi/orrbavly/GNN_project/data/embedding_graphs_90th_perc_new'  
     print("Laoding custom graphs...")
+    ## loades netx graphs from a dir
     dgl_graph_list = load_custom_graphs(dataset_dir)
     dataset = CustomDGLDataset(dgl_graph_list)
 
