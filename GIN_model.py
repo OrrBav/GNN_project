@@ -1,4 +1,5 @@
 # taken from: https://github.com/dmlc/dgl/blob/master/examples/pytorch/gin/train.py#L103
+# uses torch conda env
 import argparse
 
 import numpy as np
@@ -151,7 +152,7 @@ class CustomDGLDataset(Dataset):
 
 
 # Function to load graphs from pkl files
-def load_custom_graphs(directory):
+def load_custom_graphs(directory, data_type='ovarian'):
     dgl_graph_list = []
     # controls the patients type used in experiment
     invalid_files = ["fp"]
@@ -161,7 +162,10 @@ def load_custom_graphs(directory):
             file_path = os.path.join(directory, filename)
             with open(file_path, 'rb') as f:
                 G = pickle.load(f)  # Load NetworkX graph from pkl file
-            label = 1 if 'OC' in filename else 0
+            if data_type == 'ovarian':
+                label = 1 if 'OC' in filename else 0
+            elif data_type == 'colon':
+                label = 1 if 'high' in filename else 0
             dgl_graph = dgl.from_networkx(G)
             dgl_graph = dgl.add_self_loop(dgl_graph)
             embeddings = [torch.tensor(G.nodes[n]['embedding'], dtype=torch.float32) for n in G.nodes()]
@@ -185,10 +189,10 @@ if __name__ == "__main__":
     print(f"Using device: {device}")
     
     # Set directory to where the custom pkl files are stored
-    dataset_dir = '/home/dsi/orrbavly/GNN_project/data/embedding_graphs_90th_perc_new'  
+    dataset_dir = '/dsi/sbm/OrrBavly/colon_data/embedding_graphs_90th_perc'  
     print("Laoding custom graphs...")
-    ## loades netx graphs from a dir
-    dgl_graph_list = load_custom_graphs(dataset_dir)
+    ## loades netx graphs from a dir. MAKE SURE to specify data type for correct lables.
+    dgl_graph_list = load_custom_graphs(dataset_dir, data_type='colon')
     dataset = CustomDGLDataset(dgl_graph_list)
 
     labels = [label.item() for _, label in dataset]
