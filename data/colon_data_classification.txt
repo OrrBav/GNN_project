@@ -1,4 +1,6 @@
 located in: /dsi/sbm/OrrBavly/colon_data/embeddings
+original files are in: /dsi/sbm/or/for_sol/downsampled/TRB/
+DATA contains only TRB seqs!
 
 # invalid files (wrong annotation), should be ignored
 invalid_files = [

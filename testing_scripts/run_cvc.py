@@ -1,7 +1,13 @@
 import os, sys
 import pandas as pd
-CSV_FOLDER = "/dsi/sbm/or/for_sol/downsampled/TRB/"
-OUTPUT_FOLDER =  "/dsi/sbm/OrrBavly/colon_data/embeddings"
+CSV_FOLDER = "/dsi/sbm/or/for_sol/downsampled/TRA/"
+# /dsi/sbm/or/for_sol/downsampled/TRA/
+OUTPUT_FOLDER =  "/dsi/sbm/OrrBavly/colon_data/embeddings/T_TRA/"
+FILE_STRING_EXT = "_TRA_mig_cdr3_clones_all.txt"
+VALID_COLUMN_VALS = ['T1', 'T2', 'T3']
+LOW_INDICATOR = 'T1'
+META_ROW = 'T'
+
 
 
 def run_embedding(filtered_df, output_path):
@@ -28,7 +34,7 @@ def save_csv(tcr_embeddings_df, output_path, OUTPUT_FORMAT='csv'):
 # Function to filter meta_df based on file name and 'N' column
 def file_is_valid(file, meta_df, valid_n_values, invalid_files):
     # Remove the suffix from the file name to match with 'filename' in meta_df
-    filename = file.replace('_TRB_mig_cdr3_clones_all.txt', '')
+    filename = file.replace(f'{FILE_STRING_EXT}', '')
     
     # Check if the file is in the invalid_files list
     if filename in invalid_files:
@@ -38,7 +44,7 @@ def file_is_valid(file, meta_df, valid_n_values, invalid_files):
     meta_row = meta_df[meta_df['filename'].str.contains(filename, na=False)]
 
     # Check if the 'N' column has valid values and return True if valid
-    if not meta_row.empty and meta_row['N'].iloc[0] in valid_n_values:
+    if not meta_row.empty and meta_row[META_ROW].iloc[0] in valid_n_values:
         return True
     
     return False
@@ -49,46 +55,57 @@ def load():
     files = os.listdir(input_path)
     output_folder = OUTPUT_FOLDER
     meta_df = pd.read_csv("/home/dsi/orrbavly/GNN_project/data/colon_meta.csv")
-    valid_n_values = ['0', '1', '2', '1a', '1b']
+    valid_n_values = VALID_COLUMN_VALS
     # patint files with invalid annotations
     invalid_files = [
     'pool1_S24', 'pool2_S22', 'pool3_S22', 'pool3_S3', 'pool4_S4', 
     'pool5_S20', 'pool6_S12', 'pool7_S22', 'pool9_S8'
     ]
-
-    pool_files = [
+    # files that appear in metadata files but not in final downsamples files, probebly because did not undergo mixcr. should also be ignored?
+    pool_files_not_in_metadata = [
     'pool8_S5', 'pool8_S7', 'pool8_S3', 'pool3_S23', 'pool4_S17', 'pool3_S19',
     'pool8_S24', 'pool8_S14', 'pool2_S18', 'pool1_S6', 'pool8_S4', 'pool7_S20', 'pool7_S1'
     ]
 
     counter = 1
-    for file in pool_files:
-        # Construct full file path
-        file_path = os.path.join(input_path, f"{file}_TRB_mig_cdr3_clones_all.txt")
-        #         if file.endswith('.txt') and file_is_valid(file, meta_df, valid_n_values, invalid_files):
+    # low_counter = 0
+    # high_counter = 0
+    print(f"~~~~~~~Starting Work~~~~~~~\noutput files will be saved in: {OUTPUT_FOLDER}")
 
-        # Check if the file is a CSV
-        if file_is_valid(file, meta_df, valid_n_values, invalid_files):
-            # Read the CSV file into a DataFrame
-            df = pd.read_csv(file_path, delimiter="\t")
-            # Renaming the 'CDR3.aa' column to 'sequences'
-            df.rename(columns={'CDR3.aa': 'Sequences'}, inplace=True)
-            # Run the embedding function with the DataFrame and file name
-            filename = file.replace("_TRB_mig_cdr3_clones_all.txt", "")
-            risk = 'low' if meta_df.loc[meta_df['filename'].str.contains(filename, na=False), 'N'].iloc[0] == '0' else 'high'
-            output_path = f"{output_folder}/{filename}_{risk}.csv"
-            
-            # Check if the output file already exists
-            if os.path.exists(output_path):
-                print(f"Skipping {filename}, file already exists.")
-                continue  # Skip the sample if the file already exists
-            
-            print(f"working on: {filename}\tnumber {counter}")
-            run_embedding(df, output_path)
-            counter +=1
-        else:
-            print(f"skipping invalid file: {file}")
+    for file in files:
+        if '9_S1' in file:
+            # Construct full file path
+            # FILES can be either TRA or TRB. change dir string accordingly.
+            file_path = os.path.join(input_path, f"{file}") # should add {FILE_STRING_EXT}?
+            # if file.endswith('.txt') and file_is_valid(file, meta_df, valid_n_values, invalid_files):
 
+            # Check if the file is a CSV
+            if file_is_valid(file, meta_df, valid_n_values, invalid_files):
+                # Read the CSV file into a DataFrame
+                df = pd.read_csv(file_path, delimiter="\t")
+                # Renaming the 'CDR3.aa' column to 'sequences'
+                df.rename(columns={'CDR3.aa': 'Sequences'}, inplace=True)
+                # Run the embedding function with the DataFrame and file name
+                filename = file.replace(f"{FILE_STRING_EXT}", "")
+                risk = 'low' if meta_df.loc[meta_df['filename'].str.contains(filename, na=False), 'N'].iloc[0] == LOW_INDICATOR else 'high'
+                output_path = f"{output_folder}/{filename}_{risk}.csv"
+                
+                # Check if the output file already exists
+                if os.path.exists(output_path):
+                    print(f"Skipping {filename}, file already exists.")
+                    continue  # Skip the sample if the file already exists
+                
+                print(f"working on: {filename}\tnumber {counter}")
+                run_embedding(df, output_path)
+                counter +=1
+
+                # if risk == 'low':
+                #     low_counter += 1
+                # elif risk == 'high':
+                #     high_counter += 1
+            else:
+                print(f"skipping invalid file: {file}")
+        # print(f"There are {low_counter} low labled files, \nand there are {high_counter} high labled files")
 
 if __name__ == '__main__':
    # Change working directory

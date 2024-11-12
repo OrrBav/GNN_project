@@ -10,17 +10,16 @@ import json
 import time
 import pickle
 
-input_folder = "./embeddings/cvcs/"
 # json file names and their threshold list:
 # results 1(just resulst as filename):[25, 50, 75, 90, 95, 99]
 # results 2: [10, 25, 40, 50, 60, 75, 90, 95]
 # results 3: [5, 15, 25, 35, 50, 70, 80, 90, 95]
-PERCENTILES = [25, 50, 75, 90, 95, 99] ## does not matter when creating netx graphs function
+PERCENTILES = [5, 15, 25, 35, 50, 70, 80, 90, 95] ## does not matter when creating netx graphs function
 # cosine, euclidean (=l2)
 METRIC = "euclidean"
-OUTPUT_FILE = "/home/dsi/orrbavly/GNN_project/embeddings/colon_percentiles/percentiles_results_l2_1_all.json"
+OUTPUT_FILE = "/home/dsi/orrbavly/GNN_project/embeddings/colon_percentiles/TRA/perc_results_l2_3_all_TRA.json"
 # used for output of percentiles OR input for creating netx graphs.
-EMBEDDINGS_FOLDER = "/dsi/sbm/OrrBavly/colon_data/embeddings"
+EMBEDDINGS_FOLDER = "/dsi/sbm/OrrBavly/colon_data/embeddings/TRA/"
 # add /extras for the additional csvs
 input_emb_folder = "/home/dsi/orrbavly/GNN_project/embeddings/new_embeddings/csvs"
 
@@ -259,7 +258,7 @@ def save_netx_graphs(directory):
 if __name__ == '__main__':
     start = time.time()
     # run_percentiles()
-    save_netx_graphs(EMBEDDINGS_FOLDER)
+    run_percentiles()
     end = time.time()
     print(f"Runtime: {(end - start)/60}")
     
