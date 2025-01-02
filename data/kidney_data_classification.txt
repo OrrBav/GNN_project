@@ -1,0 +1,4 @@
+original Data from: https://clients.adaptivebiotech.com/pub/e69bc69b-98b5-4585-a220-afd95f731170
+filtered only D0 samples from each group(STA/AR). located in: /dsi/sbm/OrrBavly/kidney_data/original_samples/
+downsampled data (taken from original files, grouped by aminoAcid column to prevent duplicated - same AA sequence originated from a different nucleotide/recombination sequence)
+is located in:

@@ -1,7 +1,9 @@
 located in: /dsi/sbm/OrrBavly/colon_data/embeddings
+has TRA/TRB data. classified by N column in colon_meta
+TRB has 90 sample labled 0 (low risk) and 49 labeld 1(high risk)
 original files are in: /dsi/sbm/or/for_sol/downsampled/TRB/
 DATA contains only TRB seqs!
-
+TRA data is in 
 # invalid files (wrong annotation), should be ignored
 invalid_files = [
 'pool1_S24', 'pool2_S22', 'pool3_S22', 'pool3_S3', 'pool4_S4', 
@@ -13,3 +15,18 @@ pool_files = [
 'pool8_S5', 'pool8_S7', 'pool8_S3', 'pool3_S23', 'pool4_S17', 'pool3_S19',
 'pool8_S24', 'pool8_S14', 'pool2_S18', 'pool1_S6', 'pool8_S4', 'pool7_S20', 'pool7_S1'
 ]
+
+T4	10	
+T3	109	5 are crossed
+T2	36	5 are crossed
+T1	12	
+-1	11	
+blank	38	
+		
+		
+N0	103	
+N1	37	
+N2	21	
+blank	42	
+minus	13	
+

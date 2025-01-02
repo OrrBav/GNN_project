@@ -9,6 +9,12 @@ import matplotlib.pyplot as plt
 import json
 import time
 import pickle
+from sklearn.decomposition import PCA
+from sklearn.manifold import SpectralEmbedding
+
+import warnings
+warnings.filterwarnings("ignore")  # Suppress all warnings 
+
 
 # json file names and their threshold list:
 # results 1(just resulst as filename):[25, 50, 75, 90, 95, 99]
@@ -17,11 +23,89 @@ import pickle
 PERCENTILES = [5, 15, 25, 35, 50, 70, 80, 90, 95] ## does not matter when creating netx graphs function
 # cosine, euclidean (=l2)
 METRIC = "euclidean"
-OUTPUT_FILE = "/home/dsi/orrbavly/GNN_project/embeddings/colon_percentiles/TRA/perc_results_l2_3_all_TRA.json"
-# used for output of percentiles OR input for creating netx graphs.
-EMBEDDINGS_FOLDER = "/dsi/sbm/OrrBavly/colon_data/embeddings/TRA/"
-# add /extras for the additional csvs
+OUTPUT_FILE = "/home/dsi/orrbavly/GNN_project/embeddings/colon_percentiles/TRA/perc_results_l2_3_all_TRA_spec_both.json"
+# used for output of percentiles OR pottential input for creating netx graphs.
+EMBEDDINGS_FOLDER = "/dsi/sbm/OrrBavly/colon_data/embeddings/TRA"
 input_emb_folder = "/home/dsi/orrbavly/GNN_project/embeddings/new_embeddings/csvs"
+
+
+def apply_pca_and_run_algorithm(file_path, explained_variance=0.95):
+    # Load the data
+    df = pd.read_csv(file_path)
+    tcr_sequences = df.iloc[:, 0].values
+    embeddings = df.iloc[:, 1:].values.astype('float32')
+
+    # # Apply PCA
+    # print(f"Original embedding shape: {embeddings.shape}")
+    # pca = PCA(n_components=explained_variance)  # Retain 95% variance
+    # # pca = PCA(n_components=min(embeddings.shape[0], 100))  # Or other values
+    # reduced_embeddings = pca.fit_transform(embeddings)
+    # print(f"Reduced embedding shape: {reduced_embeddings.shape}")
+    
+    # Replace embeddings in your existing algorithm
+    def create_faiss_index(embeddings, k, distance_metric='cosine'):
+        if distance_metric == 'cosine':
+            embeddings = embeddings / np.linalg.norm(embeddings, axis=1)[:, np.newaxis]
+            index = faiss.IndexFlatIP(embeddings.shape[1])
+        elif distance_metric == 'euclidean':
+            index = faiss.IndexFlatL2(embeddings.shape[1])
+        else:
+            raise ValueError("Invalid Distance Metric value")
+        index.add(embeddings)
+        distances, indices = index.search(embeddings, k)
+        return distances, indices
+
+    def create_adjacency_matrix(num_embeddings, indices, distances, k):
+        adjacency_matrix = np.zeros((num_embeddings, num_embeddings))
+        for i in range(num_embeddings):
+            for j in range(1, k):  # Skip the first neighbor (itself)
+                adjacency_matrix[i, indices[i, j]] = distances[i, j]
+        return adjacency_matrix
+
+    # Define different k values to explore
+    N = embeddings.shape[0] ## change to reduced_embedding when running PCA
+    k_values = [5, 10, 15, 20, 50, int(np.sqrt(N)), int(np.sqrt(N)/2)]
+    log_k = int(np.log(N)) + 1
+    if log_k not in k_values:
+        k_values.append(log_k)
+
+    percentiles_dict = {}
+
+    for k in k_values:
+        # FAISS distances/indices using original embeddings
+        distances, indices = create_faiss_index(embeddings, k, distance_metric=METRIC)
+        adjacency_matrix = create_adjacency_matrix(embeddings.shape[0], indices, distances, k)
+        # Flatten adjacency matrix and filter non-zero values
+        distances_flat = adjacency_matrix.flatten()
+        distances_flat = distances_flat[distances_flat > 0]
+        original_percentiles  = np.percentile(distances_flat, PERCENTILES)
+        
+        # Add Spectral Embedding Calculation
+        # Convert adjacency matrix to spectral embeddings
+        spectral_embedder = SpectralEmbedding(n_components=50, affinity='precomputed')
+        spectral_embeddings = spectral_embedder.fit_transform(adjacency_matrix)
+        # Compute FAISS distances/indices using spectral embeddings
+        spectral_distances, spectral_indices = create_faiss_index(spectral_embeddings, k)
+        spectral_adj_matrix = create_adjacency_matrix(N, spectral_indices, spectral_distances, k)
+        # Flatten spectral adjacency matrix and filter non-zero values
+        spectral_flat = spectral_adj_matrix.flatten()
+        spectral_flat = spectral_flat[spectral_flat > 0]
+        spectral_percentiles = np.percentile(spectral_flat, PERCENTILES)
+
+
+        # # Store percentiles for original and spectral embeddings
+        # percentiles_dict[k] = {
+        #     "original": original_percentiles.tolist(),
+        #     "spectral": spectral_percentiles.tolist(),
+        #     "combined": np.hstack((original_percentiles, spectral_percentiles)).tolist()
+        # }
+        
+        percentiles_dict[k] = np.hstack((original_percentiles, spectral_percentiles))
+        # Optionally print progress
+        # print(f"Percentiles for k={k}: Original={original_percentiles}, Spectral={spectral_percentiles}")
+
+    return percentiles_dict
+
 
 
 def creating_percentiles(file_path):
@@ -99,8 +183,8 @@ def run_percentiles():
         # Check if the file is a CSV
         if file.endswith('.csv'):
             print(f"working on file:{file}, number {i}")
-            percentiles_data = creating_percentiles(file_path)
-            # Convert NumPy arrays in percentiles_dict to lists
+            percentiles_data = apply_pca_and_run_algorithm(file_path) ### TODO: change back to creating_percentiles
+            # Convert NumPy arrays in percentiles_dict to lists, to work with JSON format
             percentiles_dict_serializable = {k: v.tolist() for k, v in percentiles_data.items()}
             all_results[file.split(".")[0]] = percentiles_dict_serializable
             print(f"finished working on file:{file}, number {i}")
@@ -203,7 +287,7 @@ def create_netx_graphs(file_path):
     # Define different k values to explore
     N = embeddings.shape[0]
     k_value = int(np.sqrt(N))
-    percentiles = [25, 50, 75, 90, 95, 99]
+    percentiles = [25, 50, 80, 90, 95, 99]
     # Threshold:
 
     distances, indices = create_faiss_index(embeddings, k_value, distance_metric=METRIC)
@@ -215,7 +299,7 @@ def create_netx_graphs(file_path):
     ## AFTER calculating the percentiles, create a new Adjecency matrix, filtered bases on given THRESHOLD
 
     # Select a threshold based on a desired percentile (e.g., 90th percentile)
-    threshold = calculated_percentiles[3]  # 90th percentile
+    threshold = calculated_percentiles[2]  # 80th percentile
     filtered_adjacency_matrix = filter_adjacency_matrix(adjacency_matrix, threshold)
 
     # Create an empty graph
@@ -234,9 +318,10 @@ def create_netx_graphs(file_path):
     return G
 
 def save_netx_graphs(directory):
-    output_path = '/dsi/sbm/OrrBavly/colon_data/embedding_graphs_90th_perc'
+    # /dsi/sbm/OrrBavly/colon_data/embedding_graphs_90th_perc_alpha/
+    output_path_graphs = '/dsi/sbm/OrrBavly/colon_data/embedding_graphs_80th_perc_alpha/'
     # Get a list of already processed files (without their extensions)
-    processed_files = {os.path.splitext(filename)[0] for filename in os.listdir(output_path)}
+    processed_files = {os.path.splitext(filename)[0] for filename in os.listdir(output_path_graphs)}
 
     for filename in os.listdir(directory):
         # if 'nd' not in filename and 'nh' not in filename:
@@ -246,7 +331,7 @@ def save_netx_graphs(directory):
             print(f"Working on file: {filename}")
             file_path = os.path.join(directory, filename)
             graph = create_netx_graphs(file_path)
-            local_output_path = os.path.join(output_path, os.path.splitext(filename)[0])
+            local_output_path = os.path.join(output_path_graphs, os.path.splitext(filename)[0])
             # Save the graph using Python's pickle module
             with open(local_output_path, 'wb') as f:
                 pickle.dump(graph, f)
@@ -258,7 +343,7 @@ def save_netx_graphs(directory):
 if __name__ == '__main__':
     start = time.time()
     # run_percentiles()
-    run_percentiles()
+    save_netx_graphs('/dsi/sbm/OrrBavly/colon_data/embeddings/TRA/')
     end = time.time()
     print(f"Runtime: {(end - start)/60}")
     

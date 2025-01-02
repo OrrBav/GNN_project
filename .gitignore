@@ -13,3 +13,5 @@ data/data_ab_83.csv
 data/data_12_fp.csv
 graphs/
 outputs/edge_lists/
+Models/hgp-sl
+testing_scripts/junk.py
