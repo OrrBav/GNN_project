@@ -1,0 +1,4 @@
+original filea located in: 
+/dsi/scratch/home/dsi/orrbavly/corona_data/original_files/
+embedding files:
+/dsi/scratch/home/dsi/orrbavly/corona_data/embeddings/

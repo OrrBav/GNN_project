@@ -1,13 +1,15 @@
 import os, sys
 import pandas as pd
-CSV_FOLDER = "/dsi/sbm/OrrBavly/kidney_data/downsamples_19789/"
+import time
+import torch
+CSV_FOLDER = "/dsi/sbm/OrrBavly/kidney_data/downsamples_clonotype_21355/"
 # /dsi/sbm/or/for_sol/downsampled/TRA/
-OUTPUT_FOLDER =  "/dsi/sbm/OrrBavly/kidney_data/downsamples_19789/embeddings/"
+OUTPUT_FOLDER =  "/dsi/sbm/OrrBavly/kidney_data/downsamples_clonotype_21355/embeddings/"
 FILE_STRING_EXT = "_TRA_mig_cdr3_clones_all.txt"
 VALID_COLUMN_VALS = ['T1', 'T2', 'T3']
 HIGH_INDICATOR = 'T3'
 META_ROW = 'T'
-
+GPU_DEVICE = 0
 
 
 def run_embedding(filtered_df, output_path):
@@ -38,21 +40,22 @@ def load_kidney():
     counter = 1
     for file in files:
         file_path = os.path.join(input_path, f"{file}")
-        # Read the CSV file into a DataFrame
-        df = pd.read_csv(file_path)
-        if 'aminoAcid' in df.columns:
-            sequences_df = df[['aminoAcid']].rename(columns={'aminoAcid': 'Sequences'})
-            # Check if the output file already exists
-            output_path = f"{output_folder}/{file}.csv"
-            if os.path.exists(output_path):
-                print(f"Skipping {file}, file already exists.")
-                continue  # Skip the sample if the file already exists
-            
-            print(f"working on: {file}\tnumber {counter}")
-            run_embedding(sequences_df, output_path)
-            counter +=1
-        else:
-            print(f"The input file {file} does not contain an 'aminoAcid' column.")
+        if os.path.isfile(file_path):    
+            # Read the CSV file into a DataFrame
+            df = pd.read_csv(file_path)
+            if 'aminoAcid' in df.columns:
+                sequences_df = df[['aminoAcid']].rename(columns={'aminoAcid': 'Sequences'})
+                # Check if the output file already exists
+                output_path = f"{output_folder}/{file}"
+                if os.path.exists(output_path):
+                    print(f"Skipping {file}, file already exists.")
+                    continue  # Skip the sample if the file already exists
+                
+                print(f"working on: {file.strip('.csv')}\tnumber {counter}")
+                run_embedding(sequences_df, output_path)
+                counter +=1
+            else:
+                print(f"The input file {file} does not contain an 'aminoAcid' column.")
 
 
 # Function to filter meta_df based on file name and 'N' column
@@ -166,16 +169,39 @@ def rename_files():
                 os.rename(old_file_path, new_file_path)
                 print(f"Renamed {file} to {new_file_name}")
     
+def load_gpu():
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    if device.type == "cpu":
+        print("CUDA is not available, using CPU for training.")
+    else:
+        # Print available devices
+        num_devices = torch.cuda.device_count()
+        print(f"CUDA is available. Number of devices: {num_devices}")
+
+        # Try connecting to the specific device
+        try:
+            torch.cuda.set_device(GPU_DEVICE)  # SET GPU INDEX HERE:
+            current_device = torch.cuda.current_device()
+            device_name = torch.cuda.get_device_name(current_device)
+            print(f"Using GPU device {current_device}: {device_name}")
+        except Exception as e:
+            print(f"Failed to connect to GPU: {e}")
+            device = torch.device("cpu")
+
+    print(f"Using device: {device}")
+
 
 if __name__ == '__main__':
-   # Change working directory
+    start = time.time()
+    load_gpu()
+    # Change working directory
     project_root = '/home/dsi/orrbavly/GNN_project/CVC'
     os.chdir(project_root)
 
     # Add the project root to sys.path
     sys.path.append(project_root)
-    import os, sys
-    import pandas as pd
+
     SRC_DIR = "cvc"
     assert os.path.isdir(SRC_DIR), f"Cannot find src dir: {SRC_DIR}"
     sys.path.append(SRC_DIR)
@@ -189,8 +215,12 @@ if __name__ == '__main__':
     FILT_EDIT_DIST = True
     from lab_notebooks.utils import HOME_DIR_GCP
     HOME_DIR_GCP
+    # CVC - TRANSFORMER
+    # scCVC - SC_TRANSFORMER
     TRANSFORMER_TO_USE = SC_TRANSFORMER
     from cvc.embbeding_wrapper import EmbeddingWrapper
 
     print("Succesully loaded the model\nstarting files...")
     load_kidney()
+    end = time.time()
+    print(f"Time running script: {(end - start) / 60}")

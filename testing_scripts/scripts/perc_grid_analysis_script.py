@@ -10,19 +10,23 @@ from sklearn.model_selection import GridSearchCV, StratifiedKFold
 from sklearn.metrics import accuracy_score, confusion_matrix, classification_report, roc_auc_score, balanced_accuracy_score, f1_score
 from sklearn.model_selection import train_test_split
 import xgboost as xgb
+from sklearn.neural_network import MLPClassifier
 import time
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
 
 
-colon_path = "/home/dsi/orrbavly/GNN_project/embeddings/colon_percentiles/TRB/percentiles_results_cos_3_all.json"
+perc_path = "/home/dsi/orrbavly/GNN_project/embeddings/kidney_percentiles/perc_results_cos_3_21k_clonotype.json"
+OUTPUT_PATH = "/home/dsi/orrbavly/GNN_project/outputs/kidney_samples_stats_rf_cos_3_clonotype.csv"
 EPOCHS = 500
+HIGH_GROUP_TAGS = ["OC", "AR", "high"]
+DATA_TYPE = 'kidney'
 
 def run_kmeans(data, labels, sample_names):
     scaler = StandardScaler()
     data_scaled = scaler.fit_transform(data)
-
-    kmeans = KMeans(n_clusters=3, random_state=42)
+    n_clusters = 3
+    kmeans = KMeans(n_clusters=n_clusters, random_state=42)
     clusters = kmeans.fit_predict(data_scaled)
     # 3. Map clusters back to sample names for analysis
     clustered_data = {
@@ -108,9 +112,9 @@ def load_json_and_extract_features_as_lists(json_path, stack=False):
         }
 
         # Append to the appropriate group based on sample_name
-        if 'H' in sample_name or 'low' in sample_name:
+        if 'H' in sample_name or 'low' in sample_name or "STA" in sample_name:
             group_0.append(sample_features)
-        elif 'OC' in sample_name or 'high' in sample_name:
+        elif 'OC' in sample_name or 'high' in sample_name or "AR" in sample_name:
             group_1.append(sample_features)
     
     return group_0, group_1
@@ -212,7 +216,7 @@ def run_grid_search(data, labels, sample_names, epochs=15):
         X_test = scaler.transform(X_test)
 
         # Train and evaluate the model
-        train_grid_xgboost(X_train, X_test, y_train, y_test, test_names, 
+        train_grid_rf_samples(X_train, X_test, y_train, y_test, test_names, 
                               false_negative_counts, test_group_counts, 
                               balanced_accuracy_scores, f1_scores)
 
@@ -282,7 +286,7 @@ def train_grid_xgboost(X_train, X_test, y_train, y_test, test_names,
 
     # Update the test group counts and track metrics for "high" samples
     for name in test_names:
-        if "high" in name:
+        if any(tag in name for tag in HIGH_GROUP_TAGS):
             test_group_counts[name] = test_group_counts.get(name, 0) + 1
             # Track balanced accuracy
             if name not in balanced_accuracy_scores:
@@ -347,7 +351,7 @@ def train_grid_rf_samples(X_train, X_test, y_train, y_test, test_names,
 
     # Update the test group counts and track metrics for "high" samples
     for name in test_names:
-        if "high" in name:
+        if any(tag in name for tag in HIGH_GROUP_TAGS):
             test_group_counts[name] = test_group_counts.get(name, 0) + 1
             # Track balanced accuracy
             if name not in balanced_accuracy_scores:
@@ -359,7 +363,65 @@ def train_grid_rf_samples(X_train, X_test, y_train, y_test, test_names,
                 f1_scores[name] = []
             f1_scores[name].append(f1)
 
-def prepare_og_perc(percentiles_data, labels_dict, vector_indices=None, average_vectors=False, epochs=15):
+
+def train_grid_mlp_samples(X_train, X_test, y_train, y_test, test_names, 
+                          false_negative_counts, test_group_counts, 
+                          balanced_accuracy_scores, f1_scores):
+    # Create a pipeline with scaling and MLP
+    pipe = Pipeline([
+        ('scaler', StandardScaler()),  # Feature scaling
+        ('mlp', MLPClassifier(max_iter=2500))  # MLP classifier
+    ])
+
+    # Define the parameter grid
+    param_grid = {
+        'mlp__hidden_layer_sizes': [(50,), (100,), (50, 50), (100, 50), [200,], [64, 32]],
+        'mlp__activation': ['tanh', 'relu'],
+        'mlp__solver': ['adam', 'sgd'],
+        'mlp__alpha': [0.0001, 0.001, 0.01],
+        'mlp__learning_rate': ['constant', 'adaptive']
+    }
+
+    grid_search = GridSearchCV(pipe, param_grid, cv=5, scoring='balanced_accuracy', n_jobs=-1)
+    # Fit GridSearchCV
+    grid_search.fit(X_train, y_train)
+
+    # Print the best parameters and best score
+    print("Best Parameters:", grid_search.best_params_)
+    print("Best balanced_accuracy Score from Grid Search:", grid_search.best_score_)
+
+    # Predict using the best model
+    best_model = grid_search.best_estimator_
+    y_pred = best_model.predict(X_test)
+
+    # Evaluate metrics
+    balanced_acc = balanced_accuracy_score(y_test, y_pred)
+    f1 = f1_score(y_test, y_pred, pos_label=1)
+
+    # Identify false negatives (True label = 1, Predicted label = 0)
+    false_negative_indices = [i for i, (true, pred) in enumerate(zip(y_test, y_pred)) if true == 1 and pred == 0]
+    false_negative_names = [test_names[i] for i in false_negative_indices]
+
+    # Update the false negative counts
+    for name in false_negative_names:
+        false_negative_counts[name] = false_negative_counts.get(name, 0) + 1
+
+    # Update the test group counts and track metrics for "high" samples
+    for name in test_names:
+        if any(tag in name for tag in HIGH_GROUP_TAGS):
+            test_group_counts[name] = test_group_counts.get(name, 0) + 1
+            # Track balanced accuracy
+            if name not in balanced_accuracy_scores:
+                balanced_accuracy_scores[name] = []
+            balanced_accuracy_scores[name].append(balanced_acc)
+
+            # Track F1 scores
+            if name not in f1_scores:
+                f1_scores[name] = []
+            f1_scores[name].append(f1)
+
+
+def prepare_og_perc(percentiles_data, labels_dict, vector_indices=None, average_vectors=False):
     """
     Prepare data for original percentile data (not stats) and run Random Forest Grid Search.
 
@@ -405,7 +467,7 @@ def prepare_og_perc(percentiles_data, labels_dict, vector_indices=None, average_
     sample_names = np.array(sample_names)
 
     # Run Random Forest Grid Search
-    stats_df = run_grid_search(data, labels, sample_names, epochs=epochs)
+    stats_df = run_grid_search(data, labels, sample_names, epochs=EPOCHS)
     print("Finished running RF with original percentiles data.")
     return stats_df
 
@@ -421,7 +483,7 @@ def prepare_data_from_groups(group_0, group_1, average_vectors=False, vector_ind
     - group_1: List of lists for Group 1, where each inner list represents a patient.
     - average_vectors: If True, averages the vectors across k values instead of concatenating.
     - vector_indices: Optional list of indices specifying which features to include.
-
+    - feature_stats: if the features are not percentiles, but statistic features calculated from them.
     Returns:
     - data: Processed feature data.
     - labels: Corresponding labels.
@@ -433,7 +495,6 @@ def prepare_data_from_groups(group_0, group_1, average_vectors=False, vector_ind
 
     # Define the maximum length for padding
     max_length = 0
-
     # Combine groups and assign labels
     combined_data = group_0 + group_1
     combined_labels = [0] * len(group_0) + [1] * len(group_1)
@@ -480,6 +541,7 @@ def prepare_data_from_groups(group_0, group_1, average_vectors=False, vector_ind
     labels = np.array(labels)
     sample_names = np.array(sample_names)
 
+
     run_kmeans(data, labels, sample_names)
     
     # Run Random Forest Grid Search
@@ -510,18 +572,26 @@ def load_results(file_path, data_type):
                 labels_dict[sample_name] = 1
             else:
                 raise Exception("Error - invalid sample type")
+        elif data_type == 'kidney':
+            if "STA" in sample_name:
+                labels_dict[sample_name] = 0
+            elif "AR" in sample_name:
+                labels_dict[sample_name] = 1
+            else:
+                raise Exception("Error - invalid sample type")
     return all_results, labels_dict
 
 if __name__ == '__main__':
     start = time.time()
-    all_results, labels_dict = load_results(colon_path, data_type='colon')
+    all_results, labels_dict = load_results(perc_path, data_type=DATA_TYPE)
     ## OG data
-    # stats_df = test_2(all_results, labels_dict)
+    stats_df = prepare_og_perc(all_results, labels_dict)
      
     ## OUTLINES DATA
-    samples_group_0, samples_group_1 = load_json_and_extract_features_as_lists(colon_path)
-    stats_df = prepare_data_from_groups(samples_group_0, samples_group_1)
+    # samples_group_0, samples_group_1 = load_json_and_extract_features_as_lists(perc_path)
+    # stats_df = prepare_data_from_groups(samples_group_0, samples_group_1)
+    
     print("Saving to file...")
-    stats_df.to_csv("/home/dsi/orrbavly/GNN_project/outputs/colon_samples_stats_outlines_xgboost.csv")
+    stats_df.to_csv(OUTPUT_PATH)
     end=time.time()
     print(f"Runtime: {(end - start)/60}")

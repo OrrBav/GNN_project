@@ -1,4 +1,11 @@
 original Data from: https://clients.adaptivebiotech.com/pub/e69bc69b-98b5-4585-a220-afd95f731170
 filtered only D0 samples from each group(STA/AR). located in: /dsi/sbm/OrrBavly/kidney_data/original_samples/
-downsampled data (taken from original files, grouped by aminoAcid column to prevent duplicated - same AA sequence originated from a different nucleotide/recombination sequence)
+downsampled data & its embedded data (taken from original files, grouped by aminoAcid column to prevent duplicated - same AA sequence originated from a different nucleotide/recombination sequence)
 is located in:
+/dsi/sbm/OrrBavly/kidney_data/downsamples_19789/
+/dsi/sbm/OrrBavly/kidney_data/downsamples_1000/
+/dsi/sbm/OrrBavly/kidney_data/downsamples_clonotype_21355/
+embedding filea are:
+/dsi/sbm/OrrBavly/kidney_data/downsamples_19789/embeddings/
+/dsi/sbm/OrrBavly/kidney_data/downsamples_1000/embeddings/
+/dsi/sbm/OrrBavly/kidney_data/downsamples_clonotype_21355/embeddings

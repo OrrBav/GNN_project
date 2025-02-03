@@ -15,19 +15,19 @@ from sklearn.manifold import SpectralEmbedding
 import warnings
 warnings.filterwarnings("ignore")  # Suppress all warnings 
 
-
 # json file names and their threshold list:
 # results 1(just resulst as filename):[25, 50, 75, 90, 95, 99]
 # results 2: [10, 25, 40, 50, 60, 75, 90, 95]
 # results 3: [5, 15, 25, 35, 50, 70, 80, 90, 95]
-PERCENTILES = [5, 15, 25, 35, 50, 70, 80, 90, 95] ## does not matter when creating netx graphs function
+# results 4: [5, 15, 25, 35, 50, 60, 70, 75, 80, 90, 95]
+PERCENTILES = [5, 15, 25, 35, 50, 70, 80, 90, 95]
 # cosine, euclidean (=l2)
-METRIC = "euclidean"
-OUTPUT_FILE = "/home/dsi/orrbavly/GNN_project/embeddings/colon_percentiles/TRA/perc_results_l2_3_all_TRA_spec_both.json"
+METRIC = "cosine"
+OUTPUT_FILE = "/home/dsi/orrbavly/GNN_project/embeddings/kidney_percentiles/lol.json"
 # used for output of percentiles OR pottential input for creating netx graphs.
-EMBEDDINGS_FOLDER = "/dsi/sbm/OrrBavly/colon_data/embeddings/TRA"
-input_emb_folder = "/home/dsi/orrbavly/GNN_project/embeddings/new_embeddings/csvs"
-
+EMBEDDINGS_FOLDER = "/dsi/sbm/OrrBavly/ovarian_data/embeddings/"
+# Set true if you want to include PCA when creating percentiles
+RUN_PCA = False
 
 def apply_pca_and_run_algorithm(file_path, explained_variance=0.95):
     # Load the data
@@ -107,15 +107,11 @@ def apply_pca_and_run_algorithm(file_path, explained_variance=0.95):
     return percentiles_dict
 
 
-
 def creating_percentiles(file_path):
     df = pd.read_csv(file_path)
     # Extract TCR sequences and embeddings
     tcr_sequences = df.iloc[:, 0].values
     embeddings = df.iloc[:, 1:].values.astype('float32')
-
-    # # Normalize the embeddings
-    # embeddings = embeddings / np.linalg.norm(embeddings, axis=1)[:, np.newaxis]
 
     # Function to create FAISS index and search for nearest neighbors
     def create_faiss_index(embeddings, k, distance_metric = 'cosine'):
@@ -159,13 +155,23 @@ def creating_percentiles(file_path):
         distances, indices = create_faiss_index(embeddings, k, distance_metric=METRIC)
         adjacency_matrix = create_adjacency_matrix(embeddings.shape[0], indices, distances, k)
         
+        # Compute graph statistics
+        degrees = adjacency_matrix.sum(axis=1)
+        avg_degree = np.mean(degrees)
+        max_degree = np.max(degrees)
+        min_degree = np.min(degrees)
+        sparsity = 1 - (degrees.sum() / (embeddings.shape[0] ** 2))
+
+        # Print results in the same format as the original script
+        print(f"K value: {k}    Avg Degree: {avg_degree}, Max Degree: {max_degree}, Min Degree: {min_degree}, Sparsity: {sparsity:.4f}")
+
         distances_flat = adjacency_matrix.flatten()
         distances_flat = distances_flat[distances_flat > 0]
         calculated_percentiles = np.percentile(distances_flat, percentiles)
         percentiles_dict[k] = calculated_percentiles
 
-        # Print the percentiles for each k value
-        print(f"Percentiles of Distances for k={k}: {calculated_percentiles}")
+        # # Print the percentiles for each k value
+        # print(f"Percentiles of Distances for k={k}: {calculated_percentiles}")
 
     return percentiles_dict
 
@@ -174,26 +180,31 @@ def run_percentiles():
     embeddings_folder = EMBEDDINGS_FOLDER
     output_file = OUTPUT_FILE
     files = os.listdir(embeddings_folder)
+    files_to_analyze = ["12_nd_A_B_H.csv","23_A_B_H.csv","22_nd_A_B_H.csv","11_nd_A_B_OC.csv" ]
     all_results = {}
     i = 1
     print(f"Started working on Metric: {METRIC}\nPercentile: {PERCENTILES}")
+    print(f"Running PCA:\t{RUN_PCA}")
     for file in files:
         # Construct full file path
         file_path = os.path.join(embeddings_folder, file)
         # Check if the file is a CSV
-        if file.endswith('.csv'):
+        if file.endswith('.csv') and 'fp' not in file and os.path.basename(file) in files_to_analyze:
             print(f"working on file:{file}, number {i}")
-            percentiles_data = apply_pca_and_run_algorithm(file_path) ### TODO: change back to creating_percentiles
+            if RUN_PCA:
+                percentiles_data = apply_pca_and_run_algorithm(file_path) ### TODO: change back to creating_percentiles
+            else:
+                percentiles_data = creating_percentiles(file_path)
             # Convert NumPy arrays in percentiles_dict to lists, to work with JSON format
             percentiles_dict_serializable = {k: v.tolist() for k, v in percentiles_data.items()}
             all_results[file.split(".")[0]] = percentiles_dict_serializable
             print(f"finished working on file:{file}, number {i}")
             i+=1
     
-    with open(output_file, 'w') as f:
-        json.dump(all_results, f, indent=4)  # indent=4 for better readability
+    # with open(output_file, 'w') as f:
+    #     json.dump(all_results, f, indent=4)  # indent=4 for better readability
     
-    print(f"Results saved to {output_file}")
+    # print(f"Results saved to {output_file}")
 
 def create_csvs():
     # Function to create csv files for each patient from the combined patients data csv (named: "data_all_ab")
@@ -340,10 +351,61 @@ def save_netx_graphs(directory):
             print(f"Skipping file: {base_filename}" )
 
 
+def creating_percentiles_faiss(file_path, r_values, distance_metric='cosine'):
+    """
+    Creates adjacency matrices using FAISS for radius-based search and prints graph statistics.
+
+    Args:
+        file_path (str): Path to the CSV file containing embeddings.
+        r_values (list): List of radius values to explore.
+        distance_metric (str): 'cosine' or 'euclidean'.
+
+    Returns:
+        None
+    """
+    df = pd.read_csv(file_path)
+    embeddings = df.iloc[:, 1:].values.astype('float32')
+
+    # Normalize embeddings for cosine similarity
+    if distance_metric == 'cosine':
+        embeddings = embeddings / np.linalg.norm(embeddings, axis=1, keepdims=True)
+        index = faiss.IndexFlatIP(embeddings.shape[1])  # Inner product (cosine similarity)
+    elif distance_metric == 'euclidean':
+        index = faiss.IndexFlatL2(embeddings.shape[1])  # L2 distance (Euclidean)
+    
+    index.add(embeddings)  # Add embeddings to FAISS index
+
+    for r in r_values:
+        print(f"  Analyzing radius: {r}")
+
+        # Perform FAISS range search (radius-based neighbor search)
+        lims, D, I = index.range_search(embeddings, r)
+
+        # Create adjacency matrix
+        adjacency_matrix = np.zeros((embeddings.shape[0], embeddings.shape[0]), dtype=np.float32)
+
+        # Fill adjacency matrix with distances
+        for i in range(len(lims) - 1):
+            start, end = lims[i], lims[i+1]
+            neighbors = I[start:end]
+            distances = D[start:end]
+            adjacency_matrix[i, neighbors] = distances
+
+        # Compute graph statistics
+        degrees = adjacency_matrix.sum(axis=1)
+        avg_degree = np.mean(degrees)
+        max_degree = np.max(degrees)
+        min_degree = np.min(degrees)
+        sparsity = 1 - (degrees.sum() / (embeddings.shape[0] ** 2))
+
+        # Print results in the same format as the original script
+        print(f"    Avg Degree: {avg_degree}, Max Degree: {max_degree}, Min Degree: {min_degree}, Sparsity: {sparsity:.4f}")
+
+
 if __name__ == '__main__':
     start = time.time()
-    # run_percentiles()
-    save_netx_graphs('/dsi/sbm/OrrBavly/colon_data/embeddings/TRA/')
-    end = time.time()
+    run_percentiles()
+    # save_netx_graphs('/dsi/sbm/OrrBavly/colon_data/embeddings/TRA/')
+    end = time.time() 
     print(f"Runtime: {(end - start)/60}")
     
