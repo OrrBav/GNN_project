@@ -154,16 +154,17 @@ def creating_percentiles(file_path):
     for k in k_values:
         distances, indices = create_faiss_index(embeddings, k, distance_metric=METRIC)
         adjacency_matrix = create_adjacency_matrix(embeddings.shape[0], indices, distances, k)
-        
-        # Compute graph statistics
-        degrees = adjacency_matrix.sum(axis=1)
-        avg_degree = np.mean(degrees)
-        max_degree = np.max(degrees)
-        min_degree = np.min(degrees)
-        sparsity = 1 - (degrees.sum() / (embeddings.shape[0] ** 2))
 
-        # Print results in the same format as the original script
-        print(f"K value: {k}    Avg Degree: {avg_degree}, Max Degree: {max_degree}, Min Degree: {min_degree}, Sparsity: {sparsity:.4f}")
+        ## TODO: remove below code for graph stats(made to compare to ball radius)    
+        # # Compute graph statistics
+        # degrees = adjacency_matrix.sum(axis=1)
+        # avg_degree = np.mean(degrees)
+        # max_degree = np.max(degrees)
+        # min_degree = np.min(degrees)
+        # sparsity = 1 - (degrees.sum() / (embeddings.shape[0] ** 2))
+
+        # # Print results in the same format as the original script
+        # print(f"K value: {k}    Avg Degree: {avg_degree}, Max Degree: {max_degree}, Min Degree: {min_degree}, Sparsity: {sparsity:.4f}")
 
         distances_flat = adjacency_matrix.flatten()
         distances_flat = distances_flat[distances_flat > 0]
@@ -201,10 +202,10 @@ def run_percentiles():
             print(f"finished working on file:{file}, number {i}")
             i+=1
     
-    # with open(output_file, 'w') as f:
-    #     json.dump(all_results, f, indent=4)  # indent=4 for better readability
+    with open(output_file, 'w') as f:
+        json.dump(all_results, f, indent=4)  # indent=4 for better readability
     
-    # print(f"Results saved to {output_file}")
+    print(f"Results saved to {output_file}")
 
 def create_csvs():
     # Function to create csv files for each patient from the combined patients data csv (named: "data_all_ab")
