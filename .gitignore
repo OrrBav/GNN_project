@@ -15,3 +15,8 @@ graphs/
 outputs/edge_lists/
 Models/hgp-sl
 testing_scripts/junk.py
+testing_scripts/scripts/list_to_move.txt
+testing_scripts/scripts/missing_files.txt
+testing_scripts/scripts/actual_files.txt
+testing_scripts/scripts/move_script.sh
+testing_scripts/scripts/run_docker.sh

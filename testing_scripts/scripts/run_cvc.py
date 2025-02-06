@@ -57,6 +57,30 @@ def load_kidney():
             else:
                 print(f"The input file {file} does not contain an 'aminoAcid' column.")
 
+def load_corona():
+    input_path = "/dsi/scratch/home/dsi/orrbavly/corona_data/original_files/"
+    output_folder = "/dsi/scratch/home/dsi/orrbavly/corona_data/embeddings/"
+    missing_files = "/home/dsi/orrbavly/GNN_project/testing_scripts/scripts/list_to_move.txt"
+    counter = 1
+    with open(missing_files, "r", encoding="utf-8") as f:
+        for line in f:
+            basename = line.strip()
+            file_path = os.path.join(input_path, basename)
+            df = pd.read_csv(file_path)
+            if 'Sequences' in df.columns:
+                # Extract file name and extension
+                base_name, ext = os.path.splitext(basename)
+                embedded_file_name = f"{base_name}_embedded{ext}"
+                output_path = os.path.join(output_folder, embedded_file_name)
+                if os.path.exists(output_path):
+                    print(f"Skipping {base_name}, file already exists.")
+                    continue  # Skip the sample if the file already exists
+                print(f"working on: {base_name}\tnumber {counter}")
+                run_embedding(df, output_path)
+                counter +=1
+            else:
+                print(f"The input file {basename} does not contain an 'Sequences' column.")
+
 
 # Function to filter meta_df based on file name and 'N' column
 def file_is_valid(file, meta_df, valid_n_values, invalid_files):
@@ -221,6 +245,6 @@ if __name__ == '__main__':
     from cvc.embbeding_wrapper import EmbeddingWrapper
 
     print("Succesully loaded the model\nstarting files...")
-    load_kidney()
+    load_corona()
     end = time.time()
     print(f"Time running script: {(end - start) / 60}")
