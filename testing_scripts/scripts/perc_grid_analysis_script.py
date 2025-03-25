@@ -7,20 +7,23 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import GridSearchCV, StratifiedKFold
-from sklearn.metrics import accuracy_score, confusion_matrix, classification_report, roc_auc_score, balanced_accuracy_score, f1_score
+from sklearn.metrics import accuracy_score, confusion_matrix, classification_report, roc_auc_score, balanced_accuracy_score, f1_score, matthews_corrcoef, roc_auc_score
 from sklearn.model_selection import train_test_split
 import xgboost as xgb
 from sklearn.neural_network import MLPClassifier
 import time
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
+from scipy.stats import entropy
 
 
-perc_path = "/home/dsi/orrbavly/GNN_project/embeddings/kidney_percentiles/perc_results_cos_3_21k_clonotype.json"
-OUTPUT_PATH = "/home/dsi/orrbavly/GNN_project/outputs/kidney_samples_stats_rf_cos_3_clonotype.csv"
+perc_path = "/home/dsi/orrbavly/GNN_project/embeddings/ovarian_percentiles/perc_ball_cos_3.json"
+OUTPUT_PATH = "/home/dsi/orrbavly/GNN_project/outputs/ovarian_samples_stats_rf_radius_cos_3_all_labels.csv"
 EPOCHS = 500
 HIGH_GROUP_TAGS = ["OC", "AR", "high"]
-DATA_TYPE = 'kidney'
+DATA_TYPE = 'ovarian'
+ONLY_HIGH = False  # Global variable to control sample selection
+
 
 def run_kmeans(data, labels, sample_names):
     scaler = StandardScaler()
@@ -197,13 +200,18 @@ def run_grid_search(data, labels, sample_names, epochs=15):
     """
     # Initialize dictionaries and lists for tracking statistics
     false_negative_counts = {}
+    false_positive_counts = {}  
     test_group_counts = {}
     balanced_accuracy_scores = {}
     f1_scores = {}
+    roc_auc_scores = {} 
+    mcc_scores = {}  
+    entropy_scores = {}  
+    confidence_scores = {}  
     stats_list = []
 
     for i in range(epochs):
-        print(f"\n####### round {i + 1} #######")
+        print(f"\n####### Epoch {i + 1} #######")
 
         # Split data into training and testing sets
         X_train, X_test, y_train, y_test, train_names, test_names = train_test_split(
@@ -216,34 +224,104 @@ def run_grid_search(data, labels, sample_names, epochs=15):
         X_test = scaler.transform(X_test)
 
         # Train and evaluate the model
-        train_grid_rf_samples(X_train, X_test, y_train, y_test, test_names, 
-                              false_negative_counts, test_group_counts, 
-                              balanced_accuracy_scores, f1_scores)
+        train_grid_rf_samples(
+            X_train, X_test, y_train, y_test, test_names,
+            false_negative_counts, false_positive_counts, test_group_counts,
+            balanced_accuracy_scores, f1_scores, roc_auc_scores, mcc_scores, entropy_scores, confidence_scores
+        )
 
     # Create a summary DataFrame
     for sample_name in test_group_counts.keys():
         balanced_acc_variance = pd.Series(balanced_accuracy_scores.get(sample_name, [])).var() if sample_name in balanced_accuracy_scores else 0
         stats_list.append({
             "sample_name": sample_name,
+            "label": 1 if any(tag in sample_name for tag in HIGH_GROUP_TAGS) else 0,
             "false_negative_appearances": false_negative_counts.get(sample_name, 0),
+            "false_positive_appearances": false_positive_counts.get(sample_name, 0),
             "total_test_appearances": test_group_counts[sample_name],
             "average_balanced_accuracy": sum(balanced_accuracy_scores.get(sample_name, [])) / len(balanced_accuracy_scores.get(sample_name, [])),
             "average_f1_score": sum(f1_scores.get(sample_name, [])) / len(f1_scores.get(sample_name, [])),
+            "average_roc_auc_score": sum(roc_auc_scores.get(sample_name, [])) / len(roc_auc_scores.get(sample_name, [])),
+            "average_mcc_score": sum(mcc_scores.get(sample_name, [])) / len(mcc_scores.get(sample_name, [])),
+            "average_entropy": np.mean(entropy_scores.get(sample_name, [])),
+            "average_confidence": np.mean(confidence_scores.get(sample_name, [])),
             "balanced_accuracy_variance": balanced_acc_variance
         })
 
     # Convert the list to a DataFrame
     stats_df = pd.DataFrame(stats_list)
-    stats_df['appearance_rate'] = stats_df['false_negative_appearances'] / stats_df['total_test_appearances']
-
-    print("Finished running RF")
-
+    # Calculate appearance rate modularly based on ONLY_HIGH
+    if ONLY_HIGH:
+        stats_df['appearance_rate'] = stats_df['false_negative_appearances'] / stats_df['total_test_appearances']
+    else:
+        stats_df['appearance_rate'] = stats_df.apply(
+            lambda row: (row['false_negative_appearances'] / row['total_test_appearances'])
+            if '_H' in row['sample_name']
+            else (row['false_positive_appearances'] / row['total_test_appearances']),
+            axis=1
+        )
+    print("Finished running Grid Search")
     return stats_df
 
 
+def update_metrics_and_counts(y_test, y_pred, test_names, balanced_acc, f1, roc_auc, mcc, 
+                              false_negative_counts, false_positive_counts, test_group_counts, 
+                              balanced_accuracy_scores, f1_scores, roc_auc_scores, mcc_scores,
+                              confidences, entropies, confidence_scores, entropy_scores):
+    """
+    Shared function to update false positives, false negatives, and track metrics.
+    """
+    # Update false negative and false positive counts based on label
+    for name, true_label, pred_label in zip(test_names, y_test, y_pred):
+        if true_label == 1:
+            # For samples with label 1, count false negatives (predicted as 0)
+            false_negative_counts[name] = false_negative_counts.get(name, 0) + (1 if pred_label == 0 else 0)
+        elif true_label == 0:
+            # For samples with label 0, count false positives (predicted as 1)
+            false_positive_counts[name] = false_positive_counts.get(name, 0) + (1 if pred_label == 1 else 0)
+
+    # Update the test group counts and track metrics for samples
+    for name, entropy_val, confidence_val in zip(test_names, entropies, confidences):
+        if ONLY_HIGH:
+            if not any(tag in name for tag in HIGH_GROUP_TAGS):
+                continue
+
+        test_group_counts[name] = test_group_counts.get(name, 0) + 1
+        # Track balanced accuracy
+        if name not in balanced_accuracy_scores:
+            balanced_accuracy_scores[name] = []
+        balanced_accuracy_scores[name].append(balanced_acc)
+
+        # Track F1 scores
+        if name not in f1_scores:
+            f1_scores[name] = []
+        f1_scores[name].append(f1)
+
+        # Track ROC-AUC scores
+        if name not in roc_auc_scores:
+            roc_auc_scores[name] = []
+        roc_auc_scores[name].append(roc_auc)
+
+        # Track MCC scores
+        if name not in mcc_scores:
+            mcc_scores[name] = []
+        mcc_scores[name].append(mcc)
+
+        # Track Entropy scores
+        if name not in entropy_scores:
+            entropy_scores[name] = []
+        entropy_scores[name].append(entropy_val)
+
+        # Track Confidence scores
+        if name not in confidence_scores:
+            confidence_scores[name] = []
+        confidence_scores[name].append(confidence_val)
+
+
 def train_grid_xgboost(X_train, X_test, y_train, y_test, test_names, 
-                          false_negative_counts, test_group_counts, 
-                          balanced_accuracy_scores, f1_scores):
+                          false_negative_counts, false_positive_counts, test_group_counts, 
+                          balanced_accuracy_scores, f1_scores, roc_auc_scores, mcc_scores,
+                          entropy_scores, confidence_scores):
     # Define the parameter grid, including scale_pos_weight
     param_grid = {
         'n_estimators': [50, 100, 200],
@@ -254,65 +332,57 @@ def train_grid_xgboost(X_train, X_test, y_train, y_test, test_names,
         'gamma': [0, 0.1, 0.3],
         'scale_pos_weight': [1.5, 1.7, 1.8, 2.0]  # Adjusted based on class imbalance for colon (90/49)
     }
-
-    # Initialize the XGBClassifier
     xgb_model = xgb.XGBClassifier(use_label_encoder=False, eval_metric='logloss')
 
     # Initialize GridSearchCV, focusing on recall for label 1
     grid_search = GridSearchCV(estimator=xgb_model, param_grid=param_grid, scoring='balanced_accuracy', cv=5, n_jobs=3, verbose=0)
-
-    # Fit GridSearchCV
     grid_search.fit(X_train, y_train)
 
-    # Print the best parameters and best score
     print("Best Parameters:", grid_search.best_params_)
     print("Best balanced_accuracy Score from Grid Search:", grid_search.best_score_)
 
     # Predict using the best model
     best_model = grid_search.best_estimator_
     y_pred = best_model.predict(X_test)
+    y_pred_proba = best_model.predict_proba(X_test)
 
     # Evaluate metrics
     balanced_acc = balanced_accuracy_score(y_test, y_pred)
     f1 = f1_score(y_test, y_pred, pos_label=1)
+    roc_auc = roc_auc_score(y_test, y_pred_proba[:, 1])  # Use only class 1 probabilities
+    mcc = matthews_corrcoef(y_test, y_pred)
+    entropies = np.array([entropy(probs) for probs in y_pred_proba])
+    confidences = np.max(y_pred_proba, axis=1)
 
-    # Identify false negatives (True label = 1, Predicted label = 0)
-    false_negative_indices = [i for i, (true, pred) in enumerate(zip(y_test, y_pred)) if true == 1 and pred == 0]
-    false_negative_names = [test_names[i] for i in false_negative_indices]
+    # Filter by ONLY_HIGH if needed
+    if ONLY_HIGH:
+        high_indices = [i for i, name in enumerate(test_names) if any(tag in name for tag in HIGH_GROUP_TAGS)]
+        y_pred = y_pred[high_indices]
+        y_pred_proba = y_pred_proba[high_indices]
+        entropies = entropies[high_indices]
+        confidences = confidences[high_indices]
+        test_names = [test_names[i] for i in high_indices]
 
-    # Update the false negative counts
-    for name in false_negative_names:
-        false_negative_counts[name] = false_negative_counts.get(name, 0) + 1
-
-    # Update the test group counts and track metrics for "high" samples
-    for name in test_names:
-        if any(tag in name for tag in HIGH_GROUP_TAGS):
-            test_group_counts[name] = test_group_counts.get(name, 0) + 1
-            # Track balanced accuracy
-            if name not in balanced_accuracy_scores:
-                balanced_accuracy_scores[name] = []
-            balanced_accuracy_scores[name].append(balanced_acc)
-
-            # Track F1 scores
-            if name not in f1_scores:
-                f1_scores[name] = []
-            f1_scores[name].append(f1)
+    # Update metrics and counts using a shared function
+    update_metrics_and_counts(y_test, y_pred, test_names, balanced_acc, f1, roc_auc, mcc, 
+                              false_negative_counts, false_positive_counts, test_group_counts, 
+                              balanced_accuracy_scores, f1_scores, roc_auc_scores, mcc_scores, confidences,
+                                entropies,confidence_scores, entropy_scores)
 
 
 
 def train_grid_rf_samples(X_train, X_test, y_train, y_test, test_names, 
-                          false_negative_counts, test_group_counts, 
-                          balanced_accuracy_scores, f1_scores):
+                          false_negative_counts, false_positive_counts, test_group_counts, 
+                          balanced_accuracy_scores, f1_scores, roc_auc_scores, mcc_scores,
+                          entropy_scores, confidence_scores):
     """
     Train Random Forest with GridSearchCV and update tracking metrics.
     """
-    # Create a pipeline with scaling and Random Forest
     pipe = Pipeline([
         ('scaler', StandardScaler()),  # Feature scaling
         ('rf', RandomForestClassifier(class_weight='balanced'))  # Random Forest classifier
     ])
 
-    # Define the parameter grid
     param_grid = {
         'rf__n_estimators': [20, 50, 100, 200, 500],
         'rf__max_depth': [5, 10, 15, 20],
@@ -322,58 +392,50 @@ def train_grid_rf_samples(X_train, X_test, y_train, y_test, test_names,
         'rf__bootstrap': [True, False]
     }
 
-    # Initialize GridSearchCV with the pipeline and parameter grid
     cv = StratifiedKFold(n_splits=5, shuffle=True)
     grid_search = GridSearchCV(pipe, param_grid, cv=cv, scoring='balanced_accuracy', n_jobs=-1, verbose=0)
-
-    # Fit the model
     grid_search.fit(X_train, y_train)
-
-    # Get the best parameters and best score
     print("Best Parameters:", grid_search.best_params_)
     print("Best Balanced Accuracy Score from Grid Search:", grid_search.best_score_)
 
     # Predict using the best model
     best_model = grid_search.best_estimator_
     y_pred = best_model.predict(X_test)
+    y_pred_proba = best_model.predict_proba(X_test)
 
     # Evaluate metrics
     balanced_acc = balanced_accuracy_score(y_test, y_pred)
     f1 = f1_score(y_test, y_pred, pos_label=1)
+    roc_auc = roc_auc_score(y_test, y_pred_proba[:, 1])  # Use only class 1 probabilities
+    mcc = matthews_corrcoef(y_test, y_pred)
+    entropies = np.array([entropy(probs) for probs in y_pred_proba])
+    confidences = np.max(y_pred_proba, axis=1)
+    
+    # Filter by ONLY_HIGH if needed
+    if ONLY_HIGH:
+        high_indices = [i for i, name in enumerate(test_names) if any(tag in name for tag in HIGH_GROUP_TAGS)]
+        y_pred = y_pred[high_indices]
+        y_pred_proba = y_pred_proba[high_indices]
+        entropies = entropies[high_indices]
+        confidences = confidences[high_indices]
+        test_names = [test_names[i] for i in high_indices]
 
-    # Identify false negatives (True label = 1, Predicted label = 0)
-    false_negative_indices = [i for i, (true, pred) in enumerate(zip(y_test, y_pred)) if true == 1 and pred == 0]
-    false_negative_names = [test_names[i] for i in false_negative_indices]
-
-    # Update the false negative counts
-    for name in false_negative_names:
-        false_negative_counts[name] = false_negative_counts.get(name, 0) + 1
-
-    # Update the test group counts and track metrics for "high" samples
-    for name in test_names:
-        if any(tag in name for tag in HIGH_GROUP_TAGS):
-            test_group_counts[name] = test_group_counts.get(name, 0) + 1
-            # Track balanced accuracy
-            if name not in balanced_accuracy_scores:
-                balanced_accuracy_scores[name] = []
-            balanced_accuracy_scores[name].append(balanced_acc)
-
-            # Track F1 scores
-            if name not in f1_scores:
-                f1_scores[name] = []
-            f1_scores[name].append(f1)
+    # Update metrics and counts using a shared function
+    update_metrics_and_counts(y_test, y_pred, test_names, balanced_acc, f1, roc_auc, mcc, 
+                              false_negative_counts, false_positive_counts, test_group_counts, 
+                              balanced_accuracy_scores, f1_scores, roc_auc_scores, mcc_scores, confidences,
+                                entropies,confidence_scores, entropy_scores)
 
 
 def train_grid_mlp_samples(X_train, X_test, y_train, y_test, test_names, 
-                          false_negative_counts, test_group_counts, 
-                          balanced_accuracy_scores, f1_scores):
-    # Create a pipeline with scaling and MLP
+                          false_negative_counts, false_positive_counts, test_group_counts, 
+                          balanced_accuracy_scores, f1_scores, roc_auc_scores, mcc_scores,
+                          entropy_scores, confidence_scores):
     pipe = Pipeline([
         ('scaler', StandardScaler()),  # Feature scaling
         ('mlp', MLPClassifier(max_iter=2500))  # MLP classifier
     ])
 
-    # Define the parameter grid
     param_grid = {
         'mlp__hidden_layer_sizes': [(50,), (100,), (50, 50), (100, 50), [200,], [64, 32]],
         'mlp__activation': ['tanh', 'relu'],
@@ -383,42 +445,37 @@ def train_grid_mlp_samples(X_train, X_test, y_train, y_test, test_names,
     }
 
     grid_search = GridSearchCV(pipe, param_grid, cv=5, scoring='balanced_accuracy', n_jobs=-1)
-    # Fit GridSearchCV
     grid_search.fit(X_train, y_train)
-
-    # Print the best parameters and best score
     print("Best Parameters:", grid_search.best_params_)
     print("Best balanced_accuracy Score from Grid Search:", grid_search.best_score_)
 
     # Predict using the best model
     best_model = grid_search.best_estimator_
     y_pred = best_model.predict(X_test)
+    y_pred_proba = best_model.predict_proba(X_test)
 
     # Evaluate metrics
     balanced_acc = balanced_accuracy_score(y_test, y_pred)
     f1 = f1_score(y_test, y_pred, pos_label=1)
+    roc_auc = roc_auc_score(y_test, y_pred_proba[:, 1])  # Use only class 1 probabilities
+    mcc = matthews_corrcoef(y_test, y_pred)
+    entropies = np.array([entropy(probs) for probs in y_pred_proba])
+    confidences = np.max(y_pred_proba, axis=1)
 
-    # Identify false negatives (True label = 1, Predicted label = 0)
-    false_negative_indices = [i for i, (true, pred) in enumerate(zip(y_test, y_pred)) if true == 1 and pred == 0]
-    false_negative_names = [test_names[i] for i in false_negative_indices]
+    # Filter by ONLY_HIGH if needed
+    if ONLY_HIGH:
+        high_indices = [i for i, name in enumerate(test_names) if any(tag in name for tag in HIGH_GROUP_TAGS)]
+        y_pred = y_pred[high_indices]
+        y_pred_proba = y_pred_proba[high_indices]
+        entropies = entropies[high_indices]
+        confidences = confidences[high_indices]
+        test_names = [test_names[i] for i in high_indices]
 
-    # Update the false negative counts
-    for name in false_negative_names:
-        false_negative_counts[name] = false_negative_counts.get(name, 0) + 1
-
-    # Update the test group counts and track metrics for "high" samples
-    for name in test_names:
-        if any(tag in name for tag in HIGH_GROUP_TAGS):
-            test_group_counts[name] = test_group_counts.get(name, 0) + 1
-            # Track balanced accuracy
-            if name not in balanced_accuracy_scores:
-                balanced_accuracy_scores[name] = []
-            balanced_accuracy_scores[name].append(balanced_acc)
-
-            # Track F1 scores
-            if name not in f1_scores:
-                f1_scores[name] = []
-            f1_scores[name].append(f1)
+    # Update metrics and counts using a shared function
+    update_metrics_and_counts(y_test, y_pred, test_names, balanced_acc, f1, roc_auc, mcc, 
+                              false_negative_counts, false_positive_counts, test_group_counts, 
+                              balanced_accuracy_scores, f1_scores, roc_auc_scores, mcc_scores, confidences,
+                                entropies,confidence_scores, entropy_scores)
 
 
 def prepare_og_perc(percentiles_data, labels_dict, vector_indices=None, average_vectors=False):
@@ -592,6 +649,6 @@ if __name__ == '__main__':
     # stats_df = prepare_data_from_groups(samples_group_0, samples_group_1)
     
     print("Saving to file...")
-    stats_df.to_csv(OUTPUT_PATH)
+    stats_df.to_csv(OUTPUT_PATH, index=False)
     end=time.time()
     print(f"Runtime: {(end - start)/60}")

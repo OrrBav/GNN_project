@@ -1,4 +1,5 @@
 total 139 patients, sub sampled to 21272 TCR seq.
+used bulk cvc.
 83 original patiens - 49 healthy (ichilov), 34 sick(shiba).
 47 nd (new data - 21 sick ichilov, 26 healthy shiba)
 9 nh (healthy, TBD from which hospital)

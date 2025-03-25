@@ -11,6 +11,7 @@ import time
 import pickle
 from sklearn.decomposition import PCA
 from sklearn.manifold import SpectralEmbedding
+import gc
 
 import warnings
 warnings.filterwarnings("ignore")  # Suppress all warnings 
@@ -20,14 +21,34 @@ warnings.filterwarnings("ignore")  # Suppress all warnings
 # results 2: [10, 25, 40, 50, 60, 75, 90, 95]
 # results 3: [5, 15, 25, 35, 50, 70, 80, 90, 95]
 # results 4: [5, 15, 25, 35, 50, 60, 70, 75, 80, 90, 95]
-PERCENTILES = [5, 15, 25, 35, 50, 70, 80, 90, 95]
+# k_values = [5, 10, 15, 20, int(np.sqrt(N)), int((np.sqrt(N))/2), log2(N)]
+
+
+# Generate percentiles: [1, 5, 10, 15, ..., 95, 99]
+PERCENTILES = [1] + list(range(5, 100, 5)) + [99]
 # cosine, euclidean (=l2)
 METRIC = "cosine"
-OUTPUT_FILE = "/home/dsi/orrbavly/GNN_project/embeddings/kidney_percentiles/lol.json"
+OUTPUT_FILE = "/home/dsi/orrbavly/GNN_project/embeddings/ovarian_percentiles/percentiles_results_cos_every5_newk.json"
 # used for output of percentiles OR pottential input for creating netx graphs.
 EMBEDDINGS_FOLDER = "/dsi/sbm/OrrBavly/ovarian_data/embeddings/"
+
+##### GPU ####
+IF_GPU = False
+# OUTPUT_FILE = "/mnt/embeddings/corona_percentiles/perc_results_cos_3_2936.json"
+# EMBEDDINGS_FOLDER = "/mnt/corona"
 # Set true if you want to include PCA when creating percentiles
 RUN_PCA = False
+# Globals for Faiss GPU inside docker 
+GPU_INDEX = 1
+NUM_GPUS = faiss.get_num_gpus()
+BATCH_SIZE = 10000
+SAVE_INTERVAL = 5
+CHECKPOIN_DIR = "/mnt/embeddings/corona_percentiles/checkpoints/"
+PROCESSED_FILES_LOG = os.path.join(CHECKPOIN_DIR, "processed_files.txt")
+print(CHECKPOIN_DIR)
+print(PROCESSED_FILES_LOG)
+# os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+
 
 def apply_pca_and_run_algorithm(file_path, explained_variance=0.95):
     # Load the data
@@ -107,6 +128,175 @@ def apply_pca_and_run_algorithm(file_path, explained_variance=0.95):
     return percentiles_dict
 
 
+def creating_percentiles_gpu(file_path):
+    import torch
+
+    df = pd.read_csv(file_path)
+    # Extract TCR sequences and embeddings
+    tcr_sequences = df.iloc[:, 0].values
+    embeddings = df.iloc[:, 1:].values.astype('float32')
+
+    # Function to create FAISS index and search for nearest neighbors
+    def create_faiss_index(embeddings, k, distance_metric='cosine'):
+        if IF_GPU:
+            res = faiss.StandardGpuResources()
+            res.setDefaultNullStreamAllDevices()  # Enable multi-streaming for better parallelism
+
+        if distance_metric == 'cosine':
+            # Ensure embeddings are normalized properly
+            embeddings = embeddings / np.linalg.norm(embeddings, axis=1, keepdims=True)
+            index = faiss.GpuIndexFlatIP(res, embeddings.shape[1])  # Cosine similarity (Inner Product)
+        
+        elif distance_metric == 'euclidean':
+            index = faiss.GpuIndexFlatL2(res, embeddings.shape[1])  # Euclidean distance
+
+        index.add(embeddings)
+        return index
+
+    # Function to create the adjacency matrix
+    def create_adjacency_matrix(num_embeddings, indices, distances, k):
+        adjacency_matrix = np.zeros((num_embeddings, num_embeddings), dtype=np.float32)
+        for i in range(num_embeddings):
+            for j in range(1, k):  # Skip the first neighbor (itself)
+                adjacency_matrix[i, indices[i, j]] = distances[i, j]
+        return adjacency_matrix
+
+    def batch_faiss_search(index, embeddings, k, batch_size=BATCH_SIZE):
+        distances_list, indices_list = [], []
+        # Ensure embeddings are normalized before searching (to match embeddings in Index)
+        embeddings = embeddings / np.linalg.norm(embeddings, axis=1, keepdims=True)
+        for i in range(0, embeddings.shape[0], batch_size):
+            batch = embeddings[i:i + batch_size]
+            distances, indices = index.search(batch, k)
+            distances_list.append(distances)
+            indices_list.append(indices)
+        
+        return np.vstack(distances_list), np.vstack(indices_list)
+
+    # Define different k values to explore
+    N = embeddings.shape[0]
+    log_k = int(np.log(N))
+    if log_k == 0:
+        log_k += 1
+    k_values = [5, 10, 15, 20, int(np.sqrt(N)), int((np.sqrt(N))/2)]
+    if log_k in k_values:
+        log_k += 1
+    k_values.append(log_k)
+
+    percentiles = PERCENTILES  # Standard percentiles to calculate
+    percentiles_dict = {}  # Dictionary to store percentiles
+
+    for k in k_values:
+        # Run for single GPU
+        # Clear memory before starting
+        torch.cuda.empty_cache()
+        gc.collect()
+        index = create_faiss_index(embeddings, k, distance_metric=METRIC)
+        index.nprobe = 10  # Use multiple probes for more accurate results
+        distances, indices = batch_faiss_search(index, embeddings, k)
+        
+        adjacency_matrix = create_adjacency_matrix(embeddings.shape[0], indices, distances, k)
+
+        distances_flat = adjacency_matrix.flatten()
+        distances_flat = distances_flat[distances_flat > 0]
+        calculated_percentiles = np.percentile(distances_flat, percentiles)
+        # print(f"[DEBUG] Percentiles for k={k}: {calculated_percentiles}")
+        percentiles_dict[k] = calculated_percentiles
+
+        # Ensure FAISS is fully reset
+        del index
+        res = None
+        gc.collect()
+        torch.cuda.empty_cache()
+
+    return percentiles_dict
+
+
+def load_processed_files():
+    """Load already processed file names to avoid reprocessing."""
+    if os.path.exists(PROCESSED_FILES_LOG):
+        with open(PROCESSED_FILES_LOG, "r") as f:
+            processed_files = f.read().splitlines()
+        return set(processed_files), len(processed_files)
+    return set(), 0
+
+def save_checkpoint(all_results, processed_files, start_idx, end_idx):
+    """Save current percentiles data and update processed files log."""
+    # Ensure the directory exists
+    os.makedirs(CHECKPOIN_DIR, exist_ok=True)
+    json_filename = os.path.join(CHECKPOIN_DIR, f"perc_faiss_cos_every5_{start_idx}-{end_idx}.json")
+    print(f"Saving interval: {start_idx}-{end_idx}")
+    # Save results as JSON
+    with open(json_filename, "w") as json_file:
+        json.dump(all_results, json_file, indent=4)
+    
+    # Append processed files to log
+    with open(PROCESSED_FILES_LOG, "a") as f:
+        for file in processed_files:
+            f.write(file + "\n")
+
+def run_percentiles_gpu():
+    import torch
+    torch.cuda.set_device(GPU_INDEX)
+    print(f"[INFO] PyTorch default CUDA device: {torch.cuda.current_device()}")
+
+    embeddings_folder = EMBEDDINGS_FOLDER
+    output_file = OUTPUT_FILE
+    files = os.listdir(embeddings_folder)
+    processed_files, last_processed_count = load_processed_files()  # Load processed files to skip them
+    all_results = {}
+    batch_processed_files = []
+    i = last_processed_count + 1
+    start_idx = i  # Track the start index of the batch (according to procceced_files file.)
+    print(f"Started working on Metric: {METRIC}\nPercentile: {PERCENTILES}")
+    print(f"Running PCA:\t{RUN_PCA}")
+    print(f"Running on GPU:\t{IF_GPU}")
+    print(f"Saving each {SAVE_INTERVAL} interval")
+    for file in files:
+        file_path = os.path.join(embeddings_folder, file)
+        # Skip non-CSV files and already processed files
+        if not file.endswith('.csv') or 'fp' in file or file in processed_files:
+            continue
+        print(f"Working on file: {file}, number {i}")
+        start = time.time()
+
+        try:
+            # Run PCA or FAISS-based algorithm
+            if RUN_PCA:
+                percentiles_data = apply_pca_and_run_algorithm(file_path)
+            else:
+                percentiles_data = creating_percentiles_gpu(file_path)
+
+            # Convert NumPy arrays to lists for JSON serialization
+            percentiles_dict_serializable = {k: v.tolist() for k, v in percentiles_data.items()}
+            all_results[file.split(".")[0]] = percentiles_dict_serializable
+            batch_processed_files.append(file)
+
+            print(f"Finished working on file: {file}, number {i}")
+            end = time.time()
+            print(f"Time processing sample: {(end - start) // 60} minutes and {(end - start) % 60:.1f} seconds")
+        
+        except Exception as e:
+            print(f"Error processing {file}: {e}")
+            continue  # Continue with the next file even if one fails
+
+        # Save every SAVE_INTERVAL files
+        if (i - 1) % SAVE_INTERVAL == 0 and i > last_processed_count:
+            end_idx = i   # Determine end index
+            save_checkpoint(all_results, batch_processed_files, start_idx, end_idx)
+            all_results.clear()  # Clear dict to free memory
+            batch_processed_files.clear()  # Clear processed file list
+            start_idx = i  # Update start index for next batch
+        
+        i += 1
+
+    # Save remaining data if any
+    if all_results:
+        end_idx = i - 1
+        save_checkpoint(all_results, batch_processed_files, start_idx, end_idx)
+
+    print("Processing complete! All results saved.")
+
 def creating_percentiles(file_path):
     df = pd.read_csv(file_path)
     # Extract TCR sequences and embeddings
@@ -140,7 +330,7 @@ def creating_percentiles(file_path):
     log_k = int(np.log(N))
     if log_k == 0:
         log_k += 1
-    k_values = [5, 10, 15, 20, int(np.sqrt(N)), int((np.sqrt(N))/2)]
+    k_values = [5, 10, 20, 50, 100, int(np.sqrt(N)), int((np.sqrt(N))/2)]
     # Ensure log_k is unique
     if log_k in k_values:
         log_k += 1
@@ -172,7 +362,7 @@ def creating_percentiles(file_path):
         percentiles_dict[k] = calculated_percentiles
 
         # # Print the percentiles for each k value
-        # print(f"Percentiles of Distances for k={k}: {calculated_percentiles}")
+        print(f"Percentiles of Distances for k={k}: {calculated_percentiles}")
 
     return percentiles_dict
 
@@ -181,19 +371,22 @@ def run_percentiles():
     embeddings_folder = EMBEDDINGS_FOLDER
     output_file = OUTPUT_FILE
     files = os.listdir(embeddings_folder)
-    files_to_analyze = ["12_nd_A_B_H.csv","23_A_B_H.csv","22_nd_A_B_H.csv","11_nd_A_B_OC.csv" ]
     all_results = {}
     i = 1
     print(f"Started working on Metric: {METRIC}\nPercentile: {PERCENTILES}")
     print(f"Running PCA:\t{RUN_PCA}")
+    print(f"Running on GPU:\t{IF_GPU}")
     for file in files:
         # Construct full file path
         file_path = os.path.join(embeddings_folder, file)
         # Check if the file is a CSV
-        if file.endswith('.csv') and 'fp' not in file and os.path.basename(file) in files_to_analyze:
+        if file.endswith('.csv') and 'fp' not in file:
             print(f"working on file:{file}, number {i}")
+            start = time.time()
             if RUN_PCA:
                 percentiles_data = apply_pca_and_run_algorithm(file_path) ### TODO: change back to creating_percentiles
+            elif IF_GPU:
+                percentiles_data = creating_percentiles_gpu(file_path)
             else:
                 percentiles_data = creating_percentiles(file_path)
             # Convert NumPy arrays in percentiles_dict to lists, to work with JSON format
@@ -201,6 +394,9 @@ def run_percentiles():
             all_results[file.split(".")[0]] = percentiles_dict_serializable
             print(f"finished working on file:{file}, number {i}")
             i+=1
+            end = time.time()
+            print(f"Time proccesing sample: {(end - start)//60} minutes and {(end - start) % 60} seconds" )
+
     
     with open(output_file, 'w') as f:
         json.dump(all_results, f, indent=4)  # indent=4 for better readability

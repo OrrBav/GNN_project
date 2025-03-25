@@ -1,0 +1,6 @@
+OVARIAN:
+using perc_ball_cos_3: around 0.8 balanced accuracy (+-0.03, best 0.88). In contrast to faiss knn, its harder to classify label 0 then label 1.
+[[13  4]
+ [ 0 11]]
+
+ using perc_faiss_cos_3: 

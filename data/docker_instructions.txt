@@ -1,0 +1,12 @@
+DOCKER FOR FAISS_GPU:
+docker run -it --gpus all \
+    -v /home/dsi/orrbavly/GNN_project:/mnt \
+    -v /dsi/scratch/home/dsi/orrbavly/corona_data/embeddings:/mnt/corona \
+    --name faiss_gpu \
+    faiss-gpu-conda bash
+
+--it stats interactive container, --gpus all gives access to gpus, -v mounts folders to the container,
+--name names the continaer, last line specifies which image to use and runs it with a bash shell.
+
+docker file located in: /home/dsi/orrbavly/GNN_project/testing_scripts/scripts/Dockerfile
+currently running on faiss-gpu-conda ID:53dbf38968bb
