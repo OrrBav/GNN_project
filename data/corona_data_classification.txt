@@ -2,3 +2,7 @@ original filea located in:
 /dsi/scratch/home/dsi/orrbavly/corona_data/original_files/
 embedding files:
 /dsi/scratch/home/dsi/orrbavly/corona_data/embeddings/
+
+percentile file:
+/home/dsi/orrbavly/GNN_project/embeddings/corona_percentiles/perc_results_cos_3_2937.json : 
+doesnt contain missing files and list_to_move (files that difer in number of rows from the original)

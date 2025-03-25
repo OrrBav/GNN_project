@@ -10,9 +10,11 @@ import json
 
 METRIC = 'cosine'
 # cosine / euclidean
-PERCENTILES = [5, 15, 25, 35, 50, 70, 80, 90, 95]
-OUTPUT_FILE = "/home/dsi/orrbavly/GNN_project/embeddings/ovarian_percentiles/perc_ball_cos_3.json"
-EMBEDDINGS_FOLDER = "/dsi/sbm/OrrBavly/ovarian_data/embeddings/"
+PERCENTILES = list(range(1,101,3))
+# [5, 15, 25, 35, 50, 70, 80, 90, 95]
+R_VALUES = [0.45, 0.5, 0.53, 0.6, 0.65, 0.68, 0.72]
+OUTPUT_FILE = "/home/dsi/orrbavly/GNN_project/embeddings/kidney_percentiles/perc_ball_19k_cos_every_other_3.json"
+EMBEDDINGS_FOLDER = "/dsi/sbm/OrrBavly/kidney_data/downsamples_19789/embeddings/"
 
 
 def analyze_ball_pdist(file_path):
@@ -165,7 +167,7 @@ def create_sparse_adjacency_matrix(embeddings, r, device='cuda', metric='cosine'
         embeddings_torch = embeddings_torch / torch.norm(embeddings_torch, dim=1, keepdim=True)  # Normalize for cosine
         dist_matrix = 1 - torch.matmul(embeddings_torch, embeddings_torch.T)  # Cosine distance
     elif metric == 'euclidean':
-        dist_matrix = torch.cdist(embeddings_torch, embeddings_torch, p=1)  # p=2 Euclidean, p=1 Manhattan
+        dist_matrix = torch.cdist(embeddings_torch, embeddings_torch, p=2)  # p=2 Euclidean, p=1 Manhattan
     else:
         raise ValueError("Unsupported distance metric. Choose 'cosine' or 'euclidean'.")
     
@@ -175,7 +177,7 @@ def create_sparse_adjacency_matrix(embeddings, r, device='cuda', metric='cosine'
     # Move data back to CPU for sparse matrix creation
     row_indices = row_indices.cpu().numpy()
     col_indices = col_indices.cpu().numpy()
-    values = np.ones_like(row_indices, dtype=np.float64)
+    values = dist_matrix[row_indices, col_indices].cpu().numpy()  # Store actual distances
     
     # Create sparse adjacency matrix
     adj_matrix = sp.csr_matrix((values, (row_indices, col_indices)), shape=(num_nodes, num_nodes))
@@ -198,7 +200,7 @@ def process_file(file_path, r_values, device='cuda'):
         if len(distances_flat) > 0:  # Ensure there are non-zero distances
             calculated_percentiles = np.percentile(distances_flat, PERCENTILES)
             percentiles_dict[r] = calculated_percentiles
-            # print(f"    Percentiles ({PERCENTILES}): {calculated_percentiles}")
+            print(f"    Percentiles: {calculated_percentiles}")
         else:
             percentiles_dict[r] = None
             print(f"    No edges found for radius {r}, skipping percentile calculation.")
@@ -226,13 +228,16 @@ def analyze_files(embedding_folder, r_values, device='cuda'):
     """Process multiple embedding files using GPU acceleration."""
     files = [os.path.join(embedding_folder, f) for f in os.listdir(embedding_folder) if f.endswith('.csv')]
     # files_to_analyze = ["12_nd_A_B_H.csv","23_A_B_H.csv","22_nd_A_B_H.csv","11_nd_A_B_OC.csv" ]
-    all_results = []
+    all_results = {}
+    print(f"Started working on Metric: {METRIC}\nPercentile: {PERCENTILES}")
+    i = 1
     for file in files:
         if 'fp' not in file:
             percentiles_data= process_file(file, r_values, device=device)
             # Convert NumPy arrays in percentiles_dict to lists, to work with JSON format
             percentiles_dict_serializable = {k: v.tolist() for k, v in percentiles_data.items()}
-            all_results[file.split(".")[0]] = percentiles_dict_serializable
+            filename = os.path.basename(file).rsplit(".", 1)[0]  # Remove extension safely. results example: 12_nd_A_B_H
+            all_results[filename] = percentiles_dict_serializable
             print(f"finished working on file:{file}, number {i}")
             i+=1
     with open(OUTPUT_FILE, 'w') as f:
@@ -260,7 +265,7 @@ def gpu_cdist():
             device = torch.device("cpu")
 
     embedding_folder = EMBEDDINGS_FOLDER  # Replace with actual path
-    r_values = [0.45, 0.5, 0.53, 0.6, 0.65, 0.68, 0.72]  # Radius values to test
+    r_values = R_VALUES  # Radius values to test
     analyze_files(embedding_folder, r_values, device=device)  # Use GPU
 
 
