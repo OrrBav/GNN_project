@@ -1,16 +1,16 @@
 located in: /dsi/sbm/OrrBavly/colon_data/embeddings
 has TRA/TRB data. classified by N column in colon_meta
 TRB has 90 sample labled 0 (low risk) and 49 labeld 1(high risk)
-original files are in: /dsi/sbm/or/for_sol/downsampled/TRB/
-DATA contains only TRB seqs!
-TRA data is in 
+original files are in: /dsi/sbm/or/for_sol/downsampled/TRB/ and is downsampled to 21145
+TRA data is in /dsi/sbm/or/for_sol/downsampled/TRA/ and is downsampled to 17359
 # invalid files (wrong annotation), should be ignored
 invalid_files = [
-'pool1_S24', 'pool2_S22', 'pool3_S22', 'pool3_S3', 'pool4_S4', 
-'pool5_S20', 'pool6_S12', 'pool7_S22', 'pool9_S8'
+'pool1_S24', 'pool2_S22', 'pool3_S3', 'pool3_S22', 'pool4_S4', 
+'pool5_S20', 'pool6_S12', 'pool6_S22', 'pool7_S22', 'pool9_S8,
+'pool9_S24'
 ]
 
-# files that appear in metadata files but not in final downsamples files, probebly because did not undergo mixcr. should also be ignored?
+# files that appear in metadata files but not in final downsamples files, probebly because did not undergo mixcr/removed duriung downsampling. should also be ignored?
 pool_files = [
 'pool8_S5', 'pool8_S7', 'pool8_S3', 'pool3_S23', 'pool4_S17', 'pool3_S19',
 'pool8_S24', 'pool8_S14', 'pool2_S18', 'pool1_S6', 'pool8_S4', 'pool7_S20', 'pool7_S1'
@@ -30,3 +30,17 @@ N2	21
 blank	42	
 minus	13	
 
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+NEW MIXCR RUN:
+on mixcr version 4.7.0 using command takara-human-rna-tcr-umi-smarter-v2
+raw data in: /dsi/sbm/OrrBavly/colon_data/new_mixcr/crc_blood_data/
+mixcr output in: /dsi/sbm/OrrBavly/colon_data/new_mixcr/
+embeddings:
+/dsi/sbm/OrrBavly/colon_data/new_mixcr/TRB/downsamples_209378/embeddings_new/
+
+missing fastq files:
+P2-S8(only 1 L004)
+P2-S9(only 1 L003)
+P2-S19(only 1 L002)
+P8-S18(only 1 L001)
