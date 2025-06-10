@@ -20,3 +20,8 @@ testing_scripts/scripts/missing_files.txt
 testing_scripts/scripts/actual_files.txt
 testing_scripts/scripts/move_script.sh
 testing_scripts/scripts/run_docker.sh
+testing_scripts/analysis/mixcr_analysis.rmd
+data/top_200_crs.csv
+data/metadata/data_12_fp.csv
+data/metadata/data_ab_83.csv
+data/metadata/data_ab_all_139.csv

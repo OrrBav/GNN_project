@@ -12,6 +12,7 @@ import pickle
 from sklearn.decomposition import PCA
 from sklearn.manifold import SpectralEmbedding
 import gc
+import re
 
 import warnings
 warnings.filterwarnings("ignore")  # Suppress all warnings 
@@ -22,15 +23,20 @@ warnings.filterwarnings("ignore")  # Suppress all warnings
 # results 3: [5, 15, 25, 35, 50, 70, 80, 90, 95]
 # results 4: [5, 15, 25, 35, 50, 60, 70, 75, 80, 90, 95]
 # k_values = [5, 10, 15, 20, int(np.sqrt(N)), int((np.sqrt(N))/2), log2(N)]
+# k_values = [5, 10, 20, 50, 100, int(np.sqrt(N)), int((np.sqrt(N))/2), log2(N)]
 
 
 # Generate percentiles: [1, 5, 10, 15, ..., 95, 99]
 PERCENTILES = [1] + list(range(5, 100, 5)) + [99]
 # cosine, euclidean (=l2)
 METRIC = "cosine"
-OUTPUT_FILE = "/home/dsi/orrbavly/GNN_project/embeddings/ovarian_percentiles/percentiles_results_cos_every5_newk.json"
+OUTPUT_FILE = "/home/dsi/orrbavly/GNN_project/embeddings/colon_percentiles/TRB/percentiles_results_cos_every5.json"
 # used for output of percentiles OR pottential input for creating netx graphs.
-EMBEDDINGS_FOLDER = "/dsi/sbm/OrrBavly/ovarian_data/embeddings/"
+EMBEDDINGS_FOLDER = "/dsi/sbm/OrrBavly/colon_data/embeddings/TRB"
+
+##### NEW COLON #####
+NEW_COLON = False
+colon_meta_file = "/home/dsi/orrbavly/GNN_project/data/metadata/colon_meta.csv"
 
 ##### GPU ####
 IF_GPU = False
@@ -49,6 +55,50 @@ print(CHECKPOIN_DIR)
 print(PROCESSED_FILES_LOG)
 # os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
+
+
+def tag_colon_by_metadata(file, sample_n_map):
+    """
+    Extracts sample_id from the filename, looks up its N value in metadata,
+    and returns a tagged filename (e.g., 'P1-S1_high') or None if skipped.
+    """
+    # samples with wrong medical annotations, should be ignored.
+    invalid_files = [
+    'P1-S24', 'P2-S22', 'P3-S3', 'P3-S22', 'P4-S4',
+    'P5-S20', 'P6-S12', 'P6-S22', 'P7-S22', 'P9-S8', 'P9-S24'
+    ]
+       # Extract sample ID (e.g., P1-S10) from filename
+    match = re.search(r'(P\d+-S\d+)', file)
+    if not match:
+        print(f"Skipping {file} (no sample ID found)")
+        return None
+
+    sample_id = match.group(1)
+
+    # Skip if sample is in the invalid list
+    if sample_id in invalid_files:
+        print(f"Skipping {file} (marked as invalid - wrong annotation)")
+        return None
+
+    # Check if sample ID is in metadata
+    if sample_id not in sample_n_map:
+        print(f"Skipping {file} (sample ID not found in metadata)")
+        return None
+
+    n_value = sample_n_map[sample_id]
+
+    # Determine tag based on N
+    if n_value == '0':
+        tag = "_low"
+    elif n_value in ['1', '2']:
+        tag = "_high"
+    else:
+        print(f"Skipping {file} (unexpected N value: {n_value})")
+        return None
+
+    # Return modified filename (without .csv)
+    base_name = file.split(".")[0]
+    return base_name + tag
 
 def apply_pca_and_run_algorithm(file_path, explained_variance=0.95):
     # Load the data
@@ -274,7 +324,7 @@ def run_percentiles_gpu():
 
             print(f"Finished working on file: {file}, number {i}")
             end = time.time()
-            print(f"Time processing sample: {(end - start) // 60} minutes and {(end - start) % 60:.1f} seconds")
+            print(f"Time processing sample: {(end - start) / 60:.1f} minutes and {(end - start) % 60:.1f} seconds")
         
         except Exception as e:
             print(f"Error processing {file}: {e}")
@@ -330,7 +380,7 @@ def creating_percentiles(file_path):
     log_k = int(np.log(N))
     if log_k == 0:
         log_k += 1
-    k_values = [5, 10, 20, 50, 100, int(np.sqrt(N)), int((np.sqrt(N))/2)]
+    k_values = [5, 10, 15, 20, int(np.sqrt(N)), int((np.sqrt(N))/2)]
     # Ensure log_k is unique
     if log_k in k_values:
         log_k += 1
@@ -382,6 +432,14 @@ def run_percentiles():
         # Check if the file is a CSV
         if file.endswith('.csv') and 'fp' not in file:
             print(f"working on file:{file}, number {i}")
+            filename = file.split(".")[0]
+            if NEW_COLON:
+                # Load metadata and create sample_id → N map
+                df_meta = pd.read_csv(colon_meta_file)
+                sample_n_map = dict(zip(df_meta["sample_id"], df_meta["N"]))
+                filename = tag_colon_by_metadata(file, sample_n_map)
+                if filename is None:
+                    continue
             start = time.time()
             if RUN_PCA:
                 percentiles_data = apply_pca_and_run_algorithm(file_path) ### TODO: change back to creating_percentiles
@@ -391,7 +449,7 @@ def run_percentiles():
                 percentiles_data = creating_percentiles(file_path)
             # Convert NumPy arrays in percentiles_dict to lists, to work with JSON format
             percentiles_dict_serializable = {k: v.tolist() for k, v in percentiles_data.items()}
-            all_results[file.split(".")[0]] = percentiles_dict_serializable
+            all_results[filename] = percentiles_dict_serializable
             print(f"finished working on file:{file}, number {i}")
             i+=1
             end = time.time()

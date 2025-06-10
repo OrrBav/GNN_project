@@ -14,6 +14,9 @@ from dgl.data import GINDataset
 from dgl.dataloading import GraphDataLoader
 from dgl.nn.pytorch.conv import GINConv
 from dgl.nn.pytorch.glob import SumPooling
+from dgl.nn import SAGEConv, SumPooling
+from dgl.nn import GATConv
+
 # from sklearn.model_selection import StratifiedKFold ### used manual function for split_fold10
 from torch.utils.data.sampler import SubsetRandomSampler
 
@@ -22,13 +25,24 @@ import os
 import pickle
 import time
 import logging
+from itertools import product
 
-GPU_DEVICE = 0
+
+GPU_DEVICE = 1
 DATASET_DIR = '/home/dsi/orrbavly/GNN_project/data/embedding_graphs_90th_perc_new' 
-SUB_GRAPHS = True
+SUB_GRAPHS = False
 K = 10
-EPOCHS = 350
 DATA_TYPE = 'ovarian'
+
+HYPER_PARAMETER_TUNE = False
+# Hyper parameters. is parentheses - original values.
+EPOCHS = 350
+NUM_LAYERS = 5 # (5)
+LR = 0.01 # (0.01)
+STEP_SIZE= 50 # (50)
+GAMMA = 0.5 # (0.5)
+HIDDEN_DIM = 16 # (16)
+DROPOUT = 0.5 # (0.5)
 
 def get_percentile_based_subgraphs(graph, lower_percentile=90, upper_percentile=99):
     """
@@ -93,11 +107,16 @@ class MLP(nn.Module):
 
 
 class GIN(nn.Module):
-    def __init__(self, input_dim, hidden_dim, output_dim):
+    def __init__(self, input_dim, hidden_dim, output_dim, dropout=DROPOUT, num_layers=NUM_LAYERS):
         super().__init__()
         self.ginlayers = nn.ModuleList()
         self.batch_norms = nn.ModuleList()
-        num_layers = 5
+        num_layers = num_layers
+        self.drop = nn.Dropout(dropout)
+        self.pool = (
+            SumPooling()
+        )  # change to mean readout (AvgPooling) on social network datasets
+
         # five-layer GCN with two-layer MLP aggregator and sum-neighbor-pooling scheme
         for layer in range(num_layers - 1):  # excluding the input layer
             if layer == 0:
@@ -115,10 +134,7 @@ class GIN(nn.Module):
                 self.linear_prediction.append(nn.Linear(input_dim, output_dim))
             else:
                 self.linear_prediction.append(nn.Linear(hidden_dim, output_dim))
-        self.drop = nn.Dropout(0.5)
-        self.pool = (
-            SumPooling()
-        )  # change to mean readout (AvgPooling) on social network datasets
+ 
 
     def forward(self, g, h):
         # list of hidden representation at each layer (including the input layer)
@@ -135,6 +151,79 @@ class GIN(nn.Module):
             score_over_layer += self.drop(self.linear_prediction[i](pooled_h))
         return score_over_layer
 
+
+class GATClassifier(nn.Module):
+    def __init__(self, in_feats, hidden_dim, out_dim, num_layers=3, num_heads=4, dropout=0.5):
+        super().__init__()
+        self.layers = nn.ModuleList()
+        self.batch_norms = nn.ModuleList()
+        self.dropout = nn.Dropout(dropout)
+        self.pool = SumPooling()
+
+        # First layer
+        self.layers.append(GATConv(in_feats, hidden_dim, num_heads))
+        self.batch_norms.append(nn.BatchNorm1d(hidden_dim * num_heads))
+
+        # Hidden layers
+        for _ in range(num_layers - 2):
+            self.layers.append(GATConv(hidden_dim * num_heads, hidden_dim, num_heads))
+            self.batch_norms.append(nn.BatchNorm1d(hidden_dim * num_heads))
+
+        # Final GAT layer (no concatenation, single head for output)
+        self.layers.append(GATConv(hidden_dim * num_heads, hidden_dim, num_heads=1))
+
+        self.classifier = nn.Linear(hidden_dim, out_dim)
+
+    def forward(self, g, x):
+        for i, layer in enumerate(self.layers[:-1]):
+            x = layer(g, x)
+            x = x.flatten(1)  # concatenate heads
+            x = self.batch_norms[i](x)
+            x = F.relu(x)
+            x = self.dropout(x)
+
+        # Final layer (no ReLU, no flatten because num_heads=1)
+        x = self.layers[-1](g, x).squeeze(1)
+
+        hg = self.pool(g, x)
+        return self.classifier(hg)
+
+class GraphSAGEClassifier(nn.Module):
+    def __init__(self, in_feats, hidden_dim, out_dim, num_layers=3, dropout=0.5, aggregator_type='mean'):
+        super().__init__()
+        self.layers = nn.ModuleList()
+        self.batch_norms = nn.ModuleList()
+        self.dropout = nn.Dropout(dropout)
+        self.pool = SumPooling()
+
+        # Input layer
+        self.layers.append(SAGEConv(in_feats, hidden_dim, aggregator_type))
+        self.batch_norms.append(nn.BatchNorm1d(hidden_dim))
+
+        # Hidden layers
+        for _ in range(num_layers - 2):
+            self.layers.append(SAGEConv(hidden_dim, hidden_dim, aggregator_type))
+            self.batch_norms.append(nn.BatchNorm1d(hidden_dim))
+
+        # Output layer
+        self.layers.append(SAGEConv(hidden_dim, hidden_dim, aggregator_type))
+
+        # Final classifier after pooling
+        self.linear = nn.Linear(hidden_dim, out_dim)
+
+    def forward(self, g, x):
+        for i, layer in enumerate(self.layers[:-1]):
+            x = layer(g, x)
+            x = self.batch_norms[i](x)
+            x = F.relu(x)
+            x = self.dropout(x)
+
+        # Final layer (no batch norm or ReLU)
+        x = self.layers[-1](g, x)
+        x = self.dropout(x)
+
+        hg = self.pool(g, x)
+        return self.linear(hg)
 
 # def split_fold10(labels, fold_idx=0):
 #     skf = StratifiedKFold(n_splits=10, shuffle=True, random_state=0)
@@ -177,27 +266,72 @@ def split_fold10_manual(labels, fold_idx=0, n_splits=10, random_seed=0):
     return train_idx, valid_idx
 
 
+def stratified_train_test_split(labels, test_size=0.2, seed=42):
+    """
+    Split indices into stratified train/test subsets. Focuses on train/test splits, not train/validation split (as split_fold10_manual function does).
+    Returns: train_indices, test_indices
+    """
+    np.random.seed(seed)
+    labels = np.array(labels)
+    unique_labels = np.unique(labels)
+
+    test_indices = []
+    train_indices = []
+
+    for label in unique_labels:
+        idx = np.where(labels == label)[0]
+        np.random.shuffle(idx)
+        n_test = int(np.floor(test_size * len(idx)))
+        test_indices.extend(idx[:n_test])
+        train_indices.extend(idx[n_test:])
+
+    return np.array(train_indices), np.array(test_indices)
+
+
 def evaluate(dataloader, device, model):
     model.eval()
     total = 0
     total_correct = 0
+
+    # For balanced accuracy
+    class_correct = {}
+    class_total = {}
+
     for batched_graph, labels in dataloader:
         batched_graph = batched_graph.to(device)
         labels = labels.to(device)
         feat = batched_graph.ndata.pop("attr")
-        total += len(labels)
         logits = model(batched_graph, feat)
         _, predicted = torch.max(logits, 1)
+
+        total += len(labels)
         total_correct += (predicted == labels).sum().item()
-    acc = 1.0 * total_correct / total
-    return acc
+
+        for label, pred in zip(labels, predicted):
+            label = label.item()
+            class_total[label] = class_total.get(label, 0) + 1
+            if label == pred.item():
+                class_correct[label] = class_correct.get(label, 0) + 1
+
+    acc = total_correct / total
+
+    recalls = []
+    for cls in class_total:
+        correct = class_correct.get(cls, 0)
+        recall = correct / class_total[cls]
+        recalls.append(recall)
+
+    balanced_acc = sum(recalls) / len(recalls)
+
+    # print(f"Overall Accuracy: {acc:.4f} | Balanced Accuracy: {balanced_acc:.4f}")
+    return acc, balanced_acc
 
 
 def train(train_loader, val_loader, device, model):
     # loss function, optimizer and scheduler
     loss_fcn = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=0.01)
-    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=50, gamma=0.5)
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=STEP_SIZE, gamma=GAMMA)
 
     # training loop
     for epoch in range(EPOCHS):
@@ -214,14 +348,70 @@ def train(train_loader, val_loader, device, model):
             optimizer.step()
             total_loss += loss.item()
         scheduler.step()
-        train_acc = evaluate(train_loader, device, model)
-        valid_acc = evaluate(val_loader, device, model)
+        train_acc, train_balnc_acc = evaluate(train_loader, device, model)
+        valid_acc, valid_balnc_acc = evaluate(val_loader, device, model)
         print(
-            "Epoch {:05d} | Loss {:.4f} | Train Acc. {:.4f} | Validation Acc. {:.4f} ".format(
-                epoch + 1, total_loss / (batch + 1), train_acc, valid_acc
+            "Epoch {:05d} | Loss {:.4f} | Train Acc./balnc_Acc {:.4f}/{:.4f} | Validation Acc./balnc_Acc {:.4f}/{:.4f} ".format(
+                epoch + 1, total_loss / (batch + 1), train_acc, train_balnc_acc, valid_acc, valid_balnc_acc
             )
         )
 
+def train_kfold_val(dataset, train_val_idx, device, model, n_splits=3, learn_r=LR, epochs=EPOCHS):
+    '''
+    My addition, modified train function (based on original DGL function).
+    '''
+    labels = [dataset[i][1].item() for i in train_val_idx]
+
+    loss_fcn = nn.CrossEntropyLoss()
+    optimizer = optim.Adam(model.parameters(), lr=learn_r)
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=STEP_SIZE, gamma=0.5)
+
+    for epoch in range(epochs):
+        model.train()
+        total_loss = 0
+        val_accuracies = []
+
+        # Create k-folds for this epoch
+        for fold_idx in range(n_splits):
+            train_fold_idx, val_fold_idx = split_fold10_manual(labels, fold_idx, n_splits=n_splits)
+            train_idx = train_val_idx[train_fold_idx]
+            val_idx = train_val_idx[val_fold_idx]
+
+            train_loader = GraphDataLoader(dataset, sampler=SubsetRandomSampler(train_idx), batch_size=16)
+            val_loader = GraphDataLoader(dataset, sampler=SubsetRandomSampler(val_idx), batch_size=16)
+
+            # Train on train fold
+            for batched_graph, labels_ in train_loader:
+                batched_graph = batched_graph.to(device)
+                labels_ = labels_.to(device)
+                feat = batched_graph.ndata.pop("attr")
+                logits = model(batched_graph, feat)
+                loss = loss_fcn(logits, labels_)
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+                total_loss += loss.item()
+
+            # Validate on val fold
+            val_acc, val_balnc_add = evaluate(val_loader, device, model)
+            val_accuracies.append(val_balnc_add)
+
+        scheduler.step()
+        avg_val_acc = np.mean(val_accuracies)
+
+        train_loader_full = GraphDataLoader(
+            dataset,
+            sampler=SubsetRandomSampler(train_val_idx),
+            batch_size=16,
+        )
+        train_acc, train_balnc_acc = evaluate(train_loader_full, device, model)
+
+        print(
+            "Epoch {:05d} | Loss {:.4f} | Train Acc. {:.4f} | Train BalAcc. {:.4f} | Val BalAcc ({}-fold): {:.4f}".format(
+                epoch + 1, total_loss / len(train_val_idx), train_acc, train_balnc_acc, n_splits, avg_val_acc,
+            )
+        )
+    return avg_val_acc
 
 class CustomDGLDataset(Dataset):
     def __init__(self, graph_list):
@@ -308,31 +498,92 @@ if __name__ == "__main__":
     dataset = CustomDGLDataset(dgl_graph_list)
 
     labels = [label.item() for _, label in dataset]
-    train_idx, val_idx = split_fold10_manual(labels)
+    # Step 1: Stratified fixed split into train+val and test
+    train_val_idx, test_idx = stratified_train_test_split(labels, test_size=0.2)
+
+    # Step 2: K-fold CV on train+val
+    train_val_labels = [labels[i] for i in train_val_idx]
+    cv_train_idx, cv_val_idx = split_fold10_manual(train_val_labels, fold_idx=0)
+
+    # Step 3: Map indices back to full dataset
+    train_idx = train_val_idx[cv_train_idx]
+    val_idx = train_val_idx[cv_val_idx]
 
     print("Creating Dataloader...")
     # create dataloader
-    train_loader = GraphDataLoader(
-        dataset,
-        sampler=SubsetRandomSampler(train_idx),
-        batch_size=16,
-        pin_memory=torch.cuda.is_available(),
-    )
-    val_loader = GraphDataLoader(
-        dataset,
-        sampler=SubsetRandomSampler(val_idx),
-        batch_size=16,
-        pin_memory=torch.cuda.is_available(),
+    # ***NOTE*** when using costume kfold train function, train_loader and val_loader are not needed - as they are defined inside train fuctnion.
+
+    # train_loader = GraphDataLoader(
+    #     dataset,
+    #     sampler=SubsetRandomSampler(train_idx),
+    #     batch_size=16,
+    #     pin_memory=torch.cuda.is_available(),
+    # )
+    # val_loader = GraphDataLoader(
+    #     dataset,
+    #     sampler=SubsetRandomSampler(val_idx),
+    #     batch_size=16,
+    #     pin_memory=torch.cuda.is_available(),
+    # )
+
+    test_loader = GraphDataLoader(
+    dataset,
+    sampler=SubsetRandomSampler(test_idx),
+    batch_size=16,
+    pin_memory=torch.cuda.is_available(),
     )
 
     # Create GIN model
     in_size = dataset[0][0].ndata['attr'].shape[1]  # Input feature size
     out_size = 2  # binary classification
-    model = GIN(in_size, 16, out_size).to(device)
 
-    # model training/validating
-    print("Training...")
-    train(train_loader, val_loader, device, model)
+    if HYPER_PARAMETER_TUNE:
+        print("Running Hyper Parameters Tuning:")
+        # ~~~~~~~ HYPER PARAMETERS TUNE ~~~~~~~~
+        best_acc = 0
+        best_config = None
+
+        hidden_dims = [16, 32]
+        lrs = [0.01, 0.005]
+        dropouts = [0.3, 0.5]
+        num_layers = [3, 5, 7]
+        # epohcs = 30
+        param_grid = list(product(hidden_dims, lrs, dropouts, num_layers))
+        for hidden_dim, lr, dropout, num_layer in param_grid:
+            print(f"\nTesting config: hidden={hidden_dim}, lr={lr}, dropout={dropout}, num_layers={num_layer}")
+            model = GIN(in_size, hidden_dim, out_size, dropout=dropout, num_layers=num_layer).to(device)
+            avg_val_acc = train_kfold_val(dataset, train_val_idx, device, model, n_splits=3, learn_r=lr, epochs=30)
+
+            if avg_val_acc > best_acc:
+                best_acc = avg_val_acc
+                best_config = (hidden_dim, lr, dropout, num_layer)
+
+        print(f"\nBest config: {best_config} with acc {best_acc:.4f}")
+
+        ### RUN new gin model on best hyper parameters.
+        print("Training GIN Model...")
+        best_hidden, best_lr, best_dropout, best_layers = best_config
+        model = GIN(in_size, best_hidden, out_size, dropout=best_dropout, num_layers=best_layers).to(device)
+        
+        # train(train_loader, val_loader, device, model)
+        train_kfold_val(dataset, train_val_idx, device, model, n_splits=3, learn_r=best_lr)
     
+    else:
+        # Run Gin model on pre determined hyper parameters:
+        print("Training Graphsage Model...")
+        # model = GIN(in_size, HIDDEN_DIM, out_size).to(device)
+        # model = GraphSAGEClassifier(in_feats=in_size, hidden_dim=64, out_dim=out_size,
+        #                     num_layers=5, dropout=0.3, aggregator_type='mean').to(device)
+        model = GATClassifier(in_feats=in_size, hidden_dim=64, out_dim=out_size,
+                            num_layers=5, num_heads=4, dropout=0.5).to(device)
+ 
+        # train(train_loader, val_loader, device, model)
+        train_kfold_val(dataset, train_val_idx, device, model, n_splits=3, learn_r=0.01)
+
+    # Evaluate the model
+    test_acc, test_baln_acc = evaluate(test_loader, device, model)
+    print(f"Test Accuracy: {test_acc:.4f}\nTest Balanced Accuracy: {test_baln_acc:.4f}") 
     end = time.time()
-    print(f"Runtime: {(end - start)/60}")
+    print(f"Script Runtime: {(end - start)/60}")
+    if HYPER_PARAMETER_TUNE:
+        print(f"\nBest config: (hidden layers size, lr, dropput, num_layers) {best_config} with train/val acc {best_acc:.4f}")

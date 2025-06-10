@@ -17,11 +17,11 @@ from sklearn.decomposition import PCA
 from scipy.stats import entropy
 
 
-perc_path = "/home/dsi/orrbavly/GNN_project/embeddings/ovarian_percentiles/perc_ball_cos_3.json"
-OUTPUT_PATH = "/home/dsi/orrbavly/GNN_project/outputs/ovarian_samples_stats_rf_radius_cos_3_all_labels.csv"
+perc_path = "/home/dsi/orrbavly/GNN_project/embeddings/colon_percentiles/TRB/percentiles_results_cos_every5.json"
+OUTPUT_PATH = "/home/dsi/orrbavly/GNN_project/outputs/colon_hardness_rf_cos_every5_new_mixcr_old_mixcr.csv"
 EPOCHS = 500
 HIGH_GROUP_TAGS = ["OC", "AR", "high"]
-DATA_TYPE = 'ovarian'
+DATA_TYPE = 'colon'
 ONLY_HIGH = False  # Global variable to control sample selection
 
 
@@ -256,7 +256,7 @@ def run_grid_search(data, labels, sample_names, epochs=15):
     else:
         stats_df['appearance_rate'] = stats_df.apply(
             lambda row: (row['false_negative_appearances'] / row['total_test_appearances'])
-            if '_H' in row['sample_name']
+            if any(tag in row['sample_name'] for tag in HIGH_GROUP_TAGS)
             else (row['false_positive_appearances'] / row['total_test_appearances']),
             axis=1
         )

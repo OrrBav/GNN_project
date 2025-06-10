@@ -248,148 +248,145 @@ def check():
 
 
 def seq_to_emb():
+    """
+    This function adds the correct Sequences column (from original_files directory) to corona embedding files. 
+    """
     import os
     import csv
+    import re
 
     # Directories
-    tcr_dir = "/dsi/scratch/home/dsi/orrbavly/corona_data/original_files/"
+    original_dir = "/dsi/scratch/home/dsi/orrbavly/corona_data/original_files/"
     embedding_dir = "/dsi/scratch/home/dsi/orrbavly/corona_data/embeddings/"
- 
-    # Get list of TCR sequence files
-    tcr_files = [f for f in os.listdir(tcr_dir) if f.endswith(".csv")]
+    output_dir = "/dsi/scratch/home/dsi/orrbavly/corona_data/embeddings_new/"   
+    temp_dir = "/dsi/sbm/OrrBavly/corona_data/temp_embeddings/"
+    report_path = "/dsi/sbm/OrrBavly/corona_data/merge_report.txt"
 
-    # Counters and lists for statistics
-    processed_count = 0
-    skipped_files = []  # List to store skipped file names
+    os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(temp_dir, exist_ok=True)
 
-    for tcr_file in tcr_files:
-        # Construct possible embedding file names
-        base_name = tcr_file.replace("_TCRB.csv", "")
-        embedding_files = [
-            f"{base_name}_TCRB_M.csv",
-            f"{base_name}_TCRB_F.csv"
-        ]
+    # Track status
+    processed_files = []
+    skipped_files = []
 
-        # Find the corresponding embedding file
-        matching_embedding_file = None
-        for emb_file in embedding_files:
-            if emb_file in os.listdir(embedding_dir):
-                matching_embedding_file = emb_file
-                break
+    # Logging helper
+    def log(message):
+        print(message)
+        with open(report_path, "a") as log_file:
+            log_file.write(message + "\n")
 
-        if not matching_embedding_file:
-            print(f"Embedding file not found for {tcr_file}, skipping immediately.")
-            skipped_files.append(tcr_file)
-            continue  # Skip this file immediately
-
-        # File paths
-        tcr_path = os.path.join(tcr_dir, tcr_file)
-        emb_path = os.path.join(embedding_dir, matching_embedding_file)
-        temp_output_path = emb_path + ".tmp"  # Temporary file for safe overwriting
-
-        # Check if the first column is already "Sequences"
-        with open(emb_path, "r") as emb_f:
-            first_line = emb_f.readline().strip().split(",")  # Read first row
-            if first_line and first_line[0] == "Sequences":
-                print(f"Skipping {matching_embedding_file}, 'Sequences' column already exists.")
-                skipped_files.append(matching_embedding_file)
-                continue  # Skip this file immediately
-
-        # Check if TCR file is empty
-        if os.stat(tcr_path).st_size == 0:
-            print(f"Warning: {tcr_file} is empty, skipping.")
-            skipped_files.append(tcr_file)
-            continue  # Skip to the next file
-
-        # Open both files using csv.reader and csv.writer
+    def merge_large_csvs(original_path, temp_emb_path, output_path, emb_file):
         try:
-            with open(tcr_path, "r") as tcr_f, open(emb_path, "r") as emb_f, open(temp_output_path, "w", newline='') as out_f:
-                tcr_reader = csv.reader(tcr_f)
-                emb_reader = csv.reader(emb_f)
-                writer = csv.writer(out_f)
+            if os.stat(original_path).st_size == 0:
+                log(f"⚠️ Skipping empty original file: {original_path}")
+                skipped_files.append(original_path)
+                return
 
-                # Read and discard the first row in the embedding file (column numbers)
-                embedding_header = next(emb_reader, None)  # Ignore first row (0,1,2,...,767)
-                if embedding_header is None:
-                    print(f"Skipping {matching_embedding_file}, embedding file is empty.")
-                    skipped_files.append(matching_embedding_file)
-                    continue  # Skip this file
+            with open(original_path, 'r') as f_seq, open(temp_emb_path, 'r') as f_emb, open(output_path, 'w', newline='') as f_out:
+                reader_seq = csv.reader(f_seq)
+                reader_emb = csv.reader(f_emb)
+                writer = csv.writer(f_out)
 
-                # Read the first row of TCR file
-                tcr_header = next(tcr_reader, None)
-                if tcr_header is None:
-                    print(f"Skipping {matching_embedding_file}, TCR file is empty.")
-                    skipped_files.append(matching_embedding_file)
-                    continue  # Skip this file
+                seq_header = next(reader_seq)
+                emb_header = next(reader_emb)
 
-                # Manually create the correct header
-                embedding_dim = len(embedding_header)
-                new_header = ["Sequences"] + [str(i) for i in range(embedding_dim)]
-                writer.writerow(new_header)
+                if "Sequences" in emb_header:
+                    log(f"⚠️ Skipping {emb_file} — already contains 'Sequences'.")
+                    skipped_files.append(emb_file)
+                    return
 
-                # Debugging: Print what is being processed
-                print(f"Processing {matching_embedding_file} (embedding file has {embedding_dim} columns)")
+                writer.writerow(["Sequences"] + emb_header)
 
-                # Process rows one by one
-                row_count_tcr = 0
-                row_count_emb = 0
-                wrote_data = False  # Track if we wrote anything
+                row_count = 0
+                for seq_row, emb_row in zip(reader_seq, reader_emb):
+                    if not seq_row or not emb_row:
+                        continue
 
-                for tcr_row, emb_row in zip(tcr_reader, emb_reader):
-                    if not tcr_row or not emb_row:
-                        continue  # Skip empty rows
-
-                    new_row = [tcr_row[0]] + emb_row  # Add Sequences column
-
-                    # Ensure the output row has exactly 769 columns
+                    new_row = [seq_row[0].strip()] + emb_row
                     if len(new_row) != 769:
-                        print(f"Column count mismatch in {matching_embedding_file} (Expected 769, got {len(new_row)}), skipping update.")
-                        skipped_files.append(matching_embedding_file)
-                        os.remove(temp_output_path)  # Immediately delete temp file
-                        break  # Skip to the next file
+                        log(f"❌ Column mismatch in {emb_file}: got {len(new_row)}, expected 769. Deleting output.")
+                        os.remove(output_path)
+                        skipped_files.append(emb_file)
+                        return
 
                     writer.writerow(new_row)
-                    row_count_tcr += 1
-                    row_count_emb += 1
-                    wrote_data = True  # We wrote at least one valid row
+                    row_count += 1
 
-                # If we didn't write any data, delete the temp file
-                if not wrote_data:
-                    print(f"No data written for {matching_embedding_file}, deleting temp file.")
-                    os.remove(temp_output_path)
-                    continue  # Skip this file
+            written_lines = sum(1 for _ in open(output_path)) - 1
+            if written_lines != row_count:
+                log(f"❌ Row mismatch in {output_path}: wrote {written_lines}, expected {row_count}. Deleting output.")
+                os.remove(output_path)
+                skipped_files.append(emb_file)
+                return
 
-                # Check row count
-                if row_count_tcr != row_count_emb:
-                    print(f"Row mismatch for {tcr_file} ({row_count_tcr} vs {row_count_emb}), skipping update.")
-                    skipped_files.append(tcr_file)
-                    os.remove(temp_output_path)  # Immediately delete temp file
-                    continue  # Skip this file
+            log(f"✅ Merged: {output_path}")
+            processed_files.append(emb_file)
 
-            # Safely replace the old file
-            os.remove(emb_path)  # Delete original file
-            os.rename(temp_output_path, emb_path)  # Move new file in place
+        except Exception as e:
+            log(f"❌ Error processing {emb_file}: {e}")
+            if os.path.exists(output_path):
+                try:
+                    os.remove(output_path)
+                    log(f"🗑️ Deleted incomplete file: {output_path}")
+                except Exception as del_e:
+                    log(f"⚠️ Could not delete output file: {del_e}")
+            skipped_files.append(emb_file)
 
-            print(f"Updated {matching_embedding_file} successfully.")
-            processed_count += 1
+    # Clear previous log
+    open(report_path, "w").close()
 
-        except OSError as e:
-            print(f"Error processing {matching_embedding_file}: {e}")
-            if os.path.exists(temp_output_path):
-                os.remove(temp_output_path)  # Immediately delete temp file
-            skipped_files.append(matching_embedding_file)
-            continue  # Skip this file
+    # Main loop
+    for emb_file in os.listdir(embedding_dir):
+        if emb_file.endswith(".csv") and ("_F.csv" in emb_file or "_M.csv" in emb_file):
+            match = re.match(r"^(\d+_TCRB)_([FM])\.csv$", emb_file)
+            if not match:
+                log(f"⚠️ Invalid file name: {emb_file}")
+                skipped_files.append(emb_file)
+                continue
 
-    # Print summary
-    print("\nProcessing completed.")
-    print(f"Successfully updated: {processed_count}")
-    print(f"Skipped due to issues: {len(skipped_files)}")
+            base_id, gender = match.groups()
+            embedding_path = os.path.join(embedding_dir, emb_file)
+            original_path = os.path.join(original_dir, f"{base_id}.csv")
+            output_file = f"{base_id}_{gender}_seqs.csv"
+            output_path = os.path.join(output_dir, output_file)
+            temp_emb_path = os.path.join(temp_dir, emb_file)
 
-    # Print skipped file names immediately
+            if os.path.exists(output_path):
+                log(f"🔁 Output already exists: {output_path}")
+                continue
+
+            if not os.path.exists(original_path):
+                log(f"❌ Missing original: {original_path}")
+                skipped_files.append(emb_file)
+                continue
+
+            try:
+                shutil.copy2(embedding_path, temp_emb_path)
+                os.remove(embedding_path)
+            except Exception as copy_err:
+                log(f"❌ Could not prepare temp file for {emb_file}: {copy_err}")
+                skipped_files.append(emb_file)
+                continue
+
+            merge_large_csvs(original_path, temp_emb_path, output_path, emb_file)
+
+            if os.path.exists(temp_emb_path):
+                os.remove(temp_emb_path)
+
+    # Final summary
+    log("\n✅ Processing complete.")
+    log(f"Files successfully processed: {len(processed_files)}")
+    log(f"Files skipped or errored: {len(skipped_files)}")
+
+    if processed_files:
+        log("\n📦 Processed files:")
+        for f in processed_files:
+            log(f"  - {f}")
+
     if skipped_files:
-        print("\nSkipped Files:")
-        for file in skipped_files:
-            print(file)
+        log("\n🔎 Skipped files:")
+        for f in skipped_files:
+            log(f"  - {f}")
 
 
 if __name__ == "__main__":
