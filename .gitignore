@@ -25,3 +25,7 @@ data/top_200_crs.csv
 data/metadata/data_12_fp.csv
 data/metadata/data_ab_83.csv
 data/metadata/data_ab_all_139.csv
+data/vdjdb-2025-02-21
+data/McPAS-TCR.csv
+data/20250312-TRAIT_search_download.xlsx
+testing_scripts/analysis/colon_analysis copy.ipynb
