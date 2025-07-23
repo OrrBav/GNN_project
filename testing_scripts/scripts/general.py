@@ -246,7 +246,6 @@ def check():
     print("\nProcessing complete.")
 
 
-
 def seq_to_emb():
     """
     This function adds the correct Sequences column (from original_files directory) to corona embedding files. 
@@ -389,9 +388,248 @@ def seq_to_emb():
             log(f"  - {f}")
 
 
+def run_overlap_graph():
+    import pandas as pd
+    import numpy as np
+    import matplotlib.pyplot as plt
+    import os
+    import seaborn as sns
+    import networkx as nx
+    print("Running overlap graph creation")
+    print("Loading clonotype files...")
+    # --- File paths ---
+    mixcr_dir = "/dsi/sbm/OrrBavly/colon_data/new_mixcr/TRB/"
+    meta_file = "/home/dsi/orrbavly/GNN_project/data/colon_meta_time.csv"
+
+    time_threshold = 750
+
+    # --- Load metadata ---
+    meta_df = pd.read_csv(meta_file)
+    meta_df = meta_df[["Sample_ID", "extraction_time"]]
+
+    # --- Load all mixcr files ---
+    # Columns to keep from MiXCR files
+    mixcr_cols = [
+        "aaSeqCDR3", "nSeqCDR3", "readCount", 'readFraction',
+        "allVHitsWithScore", "allDHitsWithScore", "allJHitsWithScore"
+    ]
+
+    clonotype_dfs = []
+
+    for fname in os.listdir(mixcr_dir):
+        if fname.endswith(".tsv") and os.path.isfile(os.path.join(mixcr_dir, fname)):
+            sample_prefix = fname.split("_")[0]
+            file_path = os.path.join(mixcr_dir, fname)
+            
+            df = pd.read_csv(file_path, sep="\t", usecols=mixcr_cols)
+            df["Sample_ID"] = sample_prefix
+            clonotype_dfs.append(df)
+    # Merge all clonotype data
+    clonotype_df = pd.concat(clonotype_dfs, ignore_index=True)
+
+    # Merge with metadata to get extraction time
+    clonotype_df = clonotype_df.merge(meta_df, on="Sample_ID", how="inner")
+
+    # Create 'group' column: fast vs slow
+    clonotype_df["group"] = clonotype_df["extraction_time"].apply(lambda x: "fast" if x <= time_threshold else "slow")
+    
+    
+    print("Filtering clonotype_df to survivors...")
+    from collections import defaultdict
+
+    # Step 1: Filter only required columns
+    aa_nt_df = clonotype_df[["aaSeqCDR3", "nSeqCDR3", "group"]].dropna()
+
+    # Step 2: For each group, collect nucleotide sequences per AA
+    grouped_nt = defaultdict(lambda: {"fast": set(), "slow": set()})
+
+    for _, row in aa_nt_df.iterrows():
+        aa = row["aaSeqCDR3"]
+        nt = row["nSeqCDR3"]
+        grp = row["group"]
+        grouped_nt[aa][grp].add(nt)
+
+    # Step 3: Classify each AA CDR3
+    same_nt = []
+    diff_nt = []
+
+    for aa_seq, seqs in grouped_nt.items():
+        if seqs["fast"] and seqs["slow"]:  # Appears in both groups
+            if seqs["fast"] == seqs["slow"]:
+                same_nt.append(aa_seq)
+            else:
+                diff_nt.append(aa_seq)
+
+    # Identify survivors (present in both groups)
+    survivors = set(same_nt) | set(diff_nt)
+
+    # Filter for survivors only
+    survivor_df = clonotype_df[clonotype_df["aaSeqCDR3"].isin(survivors)].copy()
+
+    # For each group, count in how many unique samples each TCR appears
+    counts = (
+        survivor_df
+        .groupby(["aaSeqCDR3", "group"])["Sample_ID"]
+        .nunique()
+        .unstack(fill_value=0)
+    )
+
+    # TCRs need to appear in at least threhsold samples
+    threshold = 5
+
+    # Find TCRs with at least 3 fast and 3 slow samples
+    qualified_tcrs = counts[
+        (counts.get("fast", 0) >= threshold) & (counts.get("slow", 0) >= threshold)
+    ].index.tolist()
+
+    # Only qualified TCRs
+    qualified_df = survivor_df[survivor_df["aaSeqCDR3"].isin(qualified_tcrs)]
+    # FAST group
+    fast_df = qualified_df[qualified_df["group"] == "fast"]
+    fast_expr = fast_df.pivot_table(
+        index="aaSeqCDR3", columns="Sample_ID", values="readFraction", fill_value=0
+    )
+
+    # SLOW group
+    slow_df = qualified_df[qualified_df["group"] == "slow"]
+    slow_expr = slow_df.pivot_table(
+        index="aaSeqCDR3", columns="Sample_ID", values="readFraction", fill_value=0
+    )
+    # Calculate correlation matrices (rows/cols = TCRs)
+    fast_corr = fast_expr.T.corr(method='pearson')
+    slow_corr = slow_expr.T.corr(method='pearson')
+    
+
+    print("Building graph...")
+    def intersection_graph_with_weights(G1, G2, attr1='weight', attr2='weight', new_attr1='fast_weight', new_attr2='slow_weight'):
+        """
+        Returns a new graph with only edges present in both G1 and G2.
+        Edge attributes from G1 and G2 are preserved as new_attr1 and new_attr2.
+        Only nodes with at least one shared edge will be included.
+        """
+        G_inter = nx.Graph()
+        # Create sets of edges as (nodeA, nodeB) sorted tuples for undirected comparison
+        edges1 = set(tuple(sorted(e)) for e in G1.edges())
+        edges2 = set(tuple(sorted(e)) for e in G2.edges())
+        shared_edges = edges1 & edges2
+        
+        for u, v in shared_edges:
+            # Copy correlation weights from both graphs
+            w1 = G1[u][v][attr1]
+            w2 = G2[u][v][attr2]
+            G_inter.add_edge(u, v, **{new_attr1: w1, new_attr2: w2})
+        return G_inter
+    
+    def build_pos_corr_graph_faster(corr_matrix, min_r=None):
+        """
+        Efficiently build a NetworkX graph from a correlation matrix using a threshold.
+        Precompute the edge list directly from the correlation matrix (using NumPy or pandas).
+        Only adds edges where r >= min_r (positive correlation).
+        """
+        tcrs = np.array(corr_matrix.index)
+        # Get upper triangle indices (excluding diagonal)
+        mask = np.triu(np.ones(corr_matrix.shape, dtype=bool), k=1)
+        # Get pairs and correlations
+        i_idx, j_idx = np.where(mask)
+        corrs = corr_matrix.values[mask]
+        if min_r is not None:
+            select = np.where(corrs >= min_r)[0]
+            i_idx = i_idx[select]
+            j_idx = j_idx[select]
+            corrs = corrs[select]
+        # Build edge list
+        edge_list = [
+            (tcrs[i], tcrs[j], {'weight': float(corr)})
+            for i, j, corr in zip(i_idx, j_idx, corrs)
+        ]
+        # Create graph
+        G = nx.Graph()
+        G.add_edges_from(edge_list)
+        return G
+
+    def largest_component_size(G):
+        if G.number_of_nodes() == 0:
+            return 0
+        return max(len(c) for c in nx.connected_components(G))
+
+    def tune_overlap_graph(
+        fast_corr, slow_corr, 
+        target_size=80, 
+        init_min_r_fast=None, 
+        init_min_r_slow=None,
+        step=0.01, 
+        max_iter=30, 
+        tol=5, 
+        verbose=True
+    ):
+        # Estimate good starting thresholds if not given
+        if init_min_r_fast is None:
+            fast_vals = fast_corr.values[np.triu_indices_from(fast_corr, k=1)]
+            init_min_r_fast = np.percentile(fast_vals, 99)  # or adjust
+        if init_min_r_slow is None:
+            slow_vals = slow_corr.values[np.triu_indices_from(slow_corr, k=1)]
+            init_min_r_slow = np.percentile(slow_vals, 99)
+            
+        min_r_fast = init_min_r_fast
+        min_r_slow = init_min_r_slow
+        best_diff = float('inf')
+        best_result = None
+        
+        for i in range(max_iter):
+            # Build graphs
+            G_fast = build_pos_corr_graph_faster(fast_corr, min_r_fast)
+            G_slow = build_pos_corr_graph_faster(slow_corr, min_r_slow)
+            # Intersect
+            G_overlap = intersection_graph_with_weights(G_fast, G_slow)
+            # Largest component size
+            lcc_size = largest_component_size(G_overlap)
+            diff = abs(lcc_size - target_size)
+            if verbose:
+                print(f"Iter {i}: min_r_fast={min_r_fast:.4f}, min_r_slow={min_r_slow:.4f}, "
+                    f"LCC size={lcc_size}, nodes={G_overlap.number_of_nodes()}, edges={G_overlap.number_of_edges()}")
+            # Save best result so far
+            if diff < best_diff:
+                best_diff = diff
+                best_result = (min_r_fast, min_r_slow, G_fast, G_slow, G_overlap, lcc_size)
+            # Converged?
+            if diff <= tol:
+                break
+            # Adjust thresholds:
+            if lcc_size > target_size:
+                # Too big: increase thresholds
+                min_r_fast += step
+                min_r_slow += step
+            else:
+                # Too small: decrease thresholds
+                min_r_fast -= step
+                min_r_slow -= step
+        # Return best result
+        return {
+            "min_r_fast": best_result[0],
+            "min_r_slow": best_result[1],
+            "G_fast": best_result[2],
+            "G_slow": best_result[3],
+            "G_overlap": best_result[4],
+            "lcc_size": best_result[5]
+        }
+    tune_results = tune_overlap_graph(
+    fast_corr, slow_corr,
+    init_min_r_fast= 0.5974, 
+    init_min_r_slow= 0.6174,
+    target_size=100, # LCC target size
+    step=0.00002,    # Try 0.01 or smaller for fine control
+    max_iter=50,
+    tol=5,         # Acceptable range
+    verbose=True
+    )
+    G_overlap = tune_results["G_overlap"]
+
+
+
 if __name__ == "__main__":
     # check_files()
     # move_files("/home/dsi/orrbavly/GNN_project/testing_scripts/scripts/list_to_move.txt",  "/dsi/scratch/home/dsi/orrbavly/corona_data/embeddings",
     #             "/dsi/scratch/home/dsi/orrbavly/corona_data/watchlist_embedding")
-    seq_to_emb()
+    # seq_to_emb()
+    run_overlap_graph()
 
