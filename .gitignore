@@ -30,3 +30,10 @@ data/McPAS-TCR.csv
 data/20250312-TRAIT_search_download.xlsx
 testing_scripts/analysis/colon_analysis copy.ipynb
 outputs/colon/tables/fast_corr.csv
+outputs/colon/lcc/lcc_largest_11_new.csv
+outputs/colon/lcc/lcc_second_11_new.csv
+outputs/colon/g_overlap_lcc_252_node_meta_gnn_new_4.csv
+outputs/colon/g_overlap_lcc_254_node_meta_gnn_new.csv
+outputs/colon/g_overlap_lcc_514_node_meta_gnn_new.csv
+outputs/colon/g_overlap_metadata_lcc_11_new.csv
+outputs/colon/g_overlap_data_lcc_11_new.csv

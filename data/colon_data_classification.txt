@@ -1,4 +1,4 @@
-located in: /dsi/sbm/OrrBavly/colon_data/embeddings
+located in: /dsi/efroni-lab/sbm/OrrBavly/colon_data/embeddings
 has TRA/TRB data. classified by N column in colon_meta
 TRB has 90 sample labled 0 (low risk) and 49 labeld 1(high risk)
 original files are in: /dsi/sbm/or/for_sol/downsampled/TRB/ and is downsampled to 21145
@@ -34,13 +34,21 @@ minus	13
 
 NEW MIXCR RUN:
 on mixcr version 4.7.0 using command takara-human-rna-tcr-umi-smarter-v2
-raw data in: /dsi/sbm/OrrBavly/colon_data/new_mixcr/crc_blood_data/
-mixcr output in: /dsi/sbm/OrrBavly/colon_data/new_mixcr/
+raw data in: /dsi/efroni-lab/sbm/OrrBavly/colon_data/new_mixcr/crc_blood_data/
+mixcr output in: /dsi/efroni-lab/sbm/OrrBavly/colon_data/new_mixcr/
 embeddings:
-/dsi/sbm/OrrBavly/colon_data/new_mixcr/TRB/downsamples_209378/embeddings_new/
+/dsi/efroni-lab/sbm/OrrBavly/colon_data/new_mixcr/TRB/downsamples_209378/embeddings_new/
 
 missing fastq files:
 P2-S8(only 1 L004)
 P2-S9(only 1 L003)
 P2-S19(only 1 L002)
 P8-S18(only 1 L001)
+
+files without colon_meta_times entry:
+P9-25
+
+files with missing "extraction_time" column value in colon_meta_times:
+P4-S1
+
+so from a total of 216 files, colon_analysis (and clonotype_df in it) has 211 samples, not 216.

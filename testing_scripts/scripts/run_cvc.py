@@ -10,7 +10,7 @@ VALID_COLUMN_VALS = ['T1', 'T2', 'T3']
 HIGH_INDICATOR = 'T3'
 META_ROW = 'T'
 GPU_DEVICE = 0
-
+OUTPUT_FORMAT = 'pickle'
 
 def run_embedding(filtered_df, output_path):
     # Create embeddings
@@ -19,9 +19,10 @@ def run_embedding(filtered_df, output_path):
 
     # Extract the 'Sequences' column from tcrb_data
     sequences = filtered_df['Sequences']
+    print(f"Embedded {len(sequences)} Sequences")
     # Insert the 'Sequences' column into tcrb_embeddings_df at the first position
     tcr_embeddings_df.insert(0, 'Sequences', sequences)
-    save_csv(tcr_embeddings_df, output_path)
+    save_csv(tcr_embeddings_df, output_path, OUTPUT_FORMAT=OUTPUT_FORMAT)
 
 def save_csv(tcr_embeddings_df, output_path, OUTPUT_FORMAT='csv'):
     # output embeddings
@@ -216,6 +217,17 @@ def load_gpu():
     print(f"Using device: {device}")
 
 
+def load_colon_gnn():
+    V_TOTAL_PATH = "/dsi/efroni-lab/sbm/OrrBavly/colon_data/GNN_data/node_gnn/v_total_1997_3_87_85.csv"
+    output_path = "/dsi/efroni-lab/sbm/OrrBavly/colon_data/GNN_data/node_gnn/v_total_1997_3_87_85_embedded_v2_try.pkl"
+    # input to run_embedding should be output path and df, containing 'Sequences' column
+    v_total_df = pd.read_csv(V_TOTAL_PATH)
+    v_total_df.rename(columns={'cdr3_seq': 'Sequences'}, inplace=True)
+    print(f"Embedding {v_total_df.shape} sequences")
+    print("Starting embedding")
+    run_embedding(v_total_df, output_path)
+
+
 if __name__ == '__main__':
     start = time.time()
     load_gpu()
@@ -241,10 +253,10 @@ if __name__ == '__main__':
     HOME_DIR_GCP
     # CVC - TRANSFORMER
     # scCVC - SC_TRANSFORMER
-    TRANSFORMER_TO_USE = SC_TRANSFORMER
+    TRANSFORMER_TO_USE = TRANSFORMER
     from cvc.embbeding_wrapper import EmbeddingWrapper
 
     print("Succesully loaded the model\nstarting files...")
-    load_corona()
+    load_colon_gnn()
     end = time.time()
     print(f"Time running script: {(end - start) / 60}")
