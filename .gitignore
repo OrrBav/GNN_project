@@ -37,3 +37,6 @@ outputs/colon/g_overlap_lcc_254_node_meta_gnn_new.csv
 outputs/colon/g_overlap_lcc_514_node_meta_gnn_new.csv
 outputs/colon/g_overlap_metadata_lcc_11_new.csv
 outputs/colon/g_overlap_data_lcc_11_new.csv
+testing_scripts/colon/
+testing_scripts/analysis/clonotype_stats_table.svg
+testing_scripts/analysis/jsd_per_position.svg
